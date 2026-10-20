@@ -1,0 +1,40 @@
+{
+  "name": "bokken",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Practice coding problems in your terminal, with a live timer, hints and an optional AI coach next to your own editor",
+  "keywords": [
+    "leetcode",
+    "algorithms",
+    "interview",
+    "practice",
+    "cli",
+    "terminal"
+  ],
+  "license": "MIT",
+  "author": "Shiv Arora",
+  "type": "module",
+  "bin": {
+    "bokken": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "commander": "15.0.0",
+    "esbuild": "0.28.2",
+    "ink": "8.0.0",
+    "ink-testing-library": "4.0.0",
+    "react": "19.3.1",
+    "vitest": "5.0.5"
+  }
+}
