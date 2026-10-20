@@ -1,5 +1,6 @@
 import { Command, CommanderError } from 'commander';
 import pkg from '../package.json' with { type: 'json' };
+import { runEditorWithLock } from './terminal/editor.js';
 
 const defaults = {
   isInteractive: () => Boolean(process.stdin.isTTY && process.stdout.isTTY),
@@ -29,7 +30,17 @@ export async function main(argv, deps = {}) {
       }
       await openApp();
     });
+  // Before adding commands, so they inherit it.
   if (output) program.configureOutput(output);
+
+  // What a split pane runs: the editor, plus a lock file that says it's open.
+  program
+    .command('__editor', { hidden: true })
+    .argument('<lock>')
+    .argument('<editor...>', 'editor command, its args, and the file (after --)')
+    .action(async (lock, commandLine) => {
+      await runEditorWithLock(lock, commandLine);
+    });
 
   try {
     await program.parseAsync(argv);
