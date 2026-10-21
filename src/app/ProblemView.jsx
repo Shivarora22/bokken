@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import { useEffect, useState } from 'react';
-import { formatDuration } from '../format.js';
+import { formatDuration } from '../util.js';
 import { Rule, ScrollBox } from './components.jsx';
 import { Difficulty } from './Home.jsx';
 

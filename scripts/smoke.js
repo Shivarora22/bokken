@@ -1,7 +1,6 @@
 // Live check against the real LeetCode API: `npm run smoke`. Uses a throwaway in-memory database.
 import { openDb } from '../src/db.js';
-import { createClient } from '../src/leetcode/client.js';
-import { getDaily, getProblem, lookupProblem } from '../src/leetcode/problems.js';
+import { createClient, getDaily, getProblem, lookupProblem } from '../src/leetcode.js';
 import { htmlToMarkdown } from '../src/markdown.js';
 
 try {

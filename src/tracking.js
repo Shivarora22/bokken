@@ -72,6 +72,33 @@ export function recordHint(db, attemptId, hintsSeen, { at = new Date(), idleMs =
   });
 }
 
+/**
+ * An AI call: its prompt version, model and usage go in the event. A question counts toward
+ * `asks`; an AI hint raises `ai_level`; a hint's text is kept so it comes back on reopen.
+ */
+export function recordAi(db, attemptId, { log, usage, question = false, hintText }, { at = new Date(), idleMs = DEFAULT_IDLE_MS } = {}) {
+  transaction(db, () => {
+    insertEvent(db, attemptId, 'ai', at, { ...log, usage, ...(hintText ? { text: hintText } : {}) });
+    if (question) db.prepare('UPDATE attempts SET asks = asks + 1 WHERE id = ?').run(attemptId);
+    if (log.kind === 'hint') db.prepare('UPDATE attempts SET ai_level = max(ai_level, ?) WHERE id = ?').run(log.level, attemptId);
+    updateTimes(db, attemptId, at, idleMs);
+  });
+}
+
+export function markViewedSolution(db, attemptId) {
+  db.prepare('UPDATE attempts SET viewed_solution = 1 WHERE id = ?').run(attemptId);
+}
+
+/** The AI hints this attempt already got, oldest first. */
+export function aiHints(db, attemptId) {
+  return db
+    .prepare("SELECT data FROM events WHERE attempt_id = ? AND type = 'ai' ORDER BY at, rowid")
+    .all(attemptId)
+    .map((row) => JSON.parse(row.data))
+    .filter((data) => data.kind === 'hint' && data.text)
+    .map((data) => ({ level: data.level, text: data.text }));
+}
+
 /** `/done`: marks the attempt solved and stops its clock. */
 export function finishAttempt(db, attemptId, { at = new Date(), idleMs = DEFAULT_IDLE_MS } = {}) {
   transaction(db, () => {

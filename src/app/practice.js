@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { getMeta, setMeta } from '../db.js';
-import { getDaily, getProblem, lookupProblem } from '../leetcode/problems.js';
+import { getDaily, getProblem, lookupProblem } from '../leetcode.js';
 import { startAttempt } from '../tracking.js';
 import { prepareProblem } from '../workspace.js';
 

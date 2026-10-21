@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { which } from './which.js';
+import { which } from './util.js';
 
 const run = promisify(execFile);
 

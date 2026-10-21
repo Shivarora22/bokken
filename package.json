@@ -1,6 +1,6 @@
 {
   "name": "bokken",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Practice coding problems in your terminal, with a live timer, hints and an optional AI coach next to your own editor",
   "keywords": [
@@ -29,14 +29,17 @@
     "test:watch": "vitest",
     "record": "node scripts/record-fixtures.js",
     "smoke": "node scripts/smoke.js",
+    "check:ai": "node scripts/check-ai.js",
     "prepack": "npm run build"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "0.135.0",
     "chalk": "6.0.1",
     "commander": "15.0.0",
     "esbuild": "0.28.2",
     "ink": "8.0.0",
     "ink-testing-library": "4.0.0",
+    "openai": "7.34.0",
     "react": "19.3.1",
     "string-width": "8.3.0",
     "turndown": "7.2.4",

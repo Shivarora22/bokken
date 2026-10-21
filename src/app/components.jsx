@@ -40,7 +40,7 @@ export function clampOffset(offset, length, height) {
  * The input line. It keeps its own state in a ref, so fast typing and pastes never lose
  * characters between renders. Up and down walk through `history`.
  */
-export function TextInput({ onSubmit, onType, history = [], placeholder = '', initialValue = '', isActive = true, prompt = '> ' }) {
+export function TextInput({ onSubmit, onType, history = [], placeholder = '', initialValue = '', isActive = true, prompt = '> ', mask = false }) {
   const state = useRef({ value: initialValue, cursor: initialValue.length, back: 0 });
   const [, rerender] = useReducer((n) => n + 1, 0);
 
@@ -91,7 +91,9 @@ export function TextInput({ onSubmit, onType, history = [], placeholder = '', in
   );
   usePaste((text) => insert(text.replace(/[\r\n]+/g, ' ')), { isActive });
 
-  const { value, cursor } = state.current;
+  const { cursor } = state.current;
+  // API keys show as dots.
+  const value = mask ? '•'.repeat(state.current.value.length) : state.current.value;
   return (
     <Text>
       <Text color="cyan">{prompt}</Text>
@@ -111,22 +113,40 @@ export function TextInput({ onSubmit, onType, history = [], placeholder = '', in
   );
 }
 
-/** A list to pick from with the arrow keys and Enter. */
-export function Select({ items, initial, onSelect, isActive = true, maxVisible = 8 }) {
-  const [index, setIndex] = useState(() => Math.max(0, items.findIndex((item) => item.value === initial)));
+/** A list to pick from with the arrow keys and Enter. `filterable` lists narrow as you type. */
+export function Select({ items, initial, onSelect, isActive = true, maxVisible = 8, filterable = false }) {
+  const [filter, setFilter] = useState('');
+  const [chosen, setChosen] = useState(() => Math.max(0, items.findIndex((item) => item.value === initial)));
+  const shown = filter ? items.filter((item) => item.label.toLowerCase().includes(filter.toLowerCase())) : items;
+  const index = Math.min(chosen, Math.max(0, shown.length - 1));
+
   useInput(
-    (_input, key) => {
-      if (key.upArrow) setIndex((i) => (i - 1 + items.length) % items.length);
-      else if (key.downArrow) setIndex((i) => (i + 1) % items.length);
-      else if (key.return) onSelect(items[index].value);
+    (input, key) => {
+      if (key.upArrow) setChosen(() => (index - 1 + shown.length) % shown.length);
+      else if (key.downArrow) setChosen(() => (index + 1) % shown.length);
+      else if (key.return) {
+        if (shown[index]) onSelect(shown[index].value);
+      } else if (filterable && (key.backspace || key.delete)) {
+        setFilter((f) => f.slice(0, -1));
+        setChosen(0);
+      } else if (filterable && input && !key.ctrl && !key.meta && !key.escape && !key.tab) {
+        setFilter((f) => f + input);
+        setChosen(0);
+      }
     },
     { isActive },
   );
 
-  const start = Math.min(Math.max(0, index - Math.floor(maxVisible / 2)), Math.max(0, items.length - maxVisible));
+  const start = Math.min(Math.max(0, index - Math.floor(maxVisible / 2)), Math.max(0, shown.length - maxVisible));
   return (
     <Box flexDirection="column">
-      {items.slice(start, start + maxVisible).map((item, offset) => {
+      {filterable && (
+        <Text dimColor>
+          {filter ? `Filter: ${filter}` : 'Type to filter'} · {shown.length} of {items.length}
+        </Text>
+      )}
+      {shown.length === 0 && <Text dimColor>  No match.</Text>}
+      {shown.slice(start, start + maxVisible).map((item, offset) => {
         const selected = start + offset === index;
         return (
           <Text key={item.value}>

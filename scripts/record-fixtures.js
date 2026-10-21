@@ -1,8 +1,7 @@
 // Records real LeetCode responses into test/fixtures/ for the tests to replay.
 // Run it when the API changes: `npm run record`. It sends seven requests.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { createClient } from '../src/leetcode/client.js';
-import { DAILY, PROBLEM_LIST_PATH, QUESTION, SEARCH, USER_STATUS } from '../src/leetcode/queries.js';
+import { createClient, DAILY, PROBLEM_LIST_PATH, QUESTION, SEARCH, USER_STATUS } from '../src/leetcode.js';
 
 const dir = new URL('../test/fixtures/', import.meta.url);
 mkdirSync(dir, { recursive: true });

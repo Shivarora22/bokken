@@ -14,9 +14,12 @@ const EDITOR_HINTS = {
   hx: 'modal, like vim',
 };
 
-const STEPS = ['language', 'editor', 'workspace'];
+const STEPS = ['language', 'editor', 'workspace', 'ai'];
 
-/** First run, `/setup` and `bokken setup`: language, editor, folder. */
+/**
+ * First run, `/setup` and `bokken setup`: language, editor, folder, and whether to set up
+ * AI now. `onDone(config, { setupAi })`.
+ */
 export function Setup({ ctx, config, firstRun, onDone }) {
   const { suspendTerminal } = useApp();
   const [step, setStep] = useState('language');
@@ -30,11 +33,12 @@ export function Setup({ ctx, config, firstRun, onDone }) {
     setStep(STEPS[STEPS.indexOf(key) + 1]);
   };
 
-  const finishWith = (workspace) => {
-    const next = { ...config, language: answers.language, editor: answers.editor, workspace };
+  const finish = (aiChoice) => {
+    const next = { ...config, language: answers.language, editor: answers.editor, workspace: answers.workspace };
     ctx.saveConfig(next);
-    onDone(next);
+    onDone(next, { setupAi: aiChoice === 'now' });
   };
+  const aiReady = Boolean(config.ai.provider && config.ai.model);
 
   const chooseEditor = async (value) => {
     if (value === 'install') {
@@ -52,6 +56,7 @@ export function Setup({ ctx, config, firstRun, onDone }) {
     { key: 'language', label: 'Preferred language', value: LANGUAGES[answers.language]?.name },
     { key: 'editor', label: 'Editor', value: editorName ?? 'none yet' },
     { key: 'workspace', label: 'Folder for solutions', value: tildePath(answers.workspace) },
+    { key: 'ai', label: aiReady ? 'Change AI help?' : 'Set up AI help now?', value: '' },
   ];
 
   return (
@@ -66,13 +71,12 @@ export function Setup({ ctx, config, firstRun, onDone }) {
               <Text>
                 <Text color={done ? 'green' : 'cyan'}>{done ? '✓ ' : current ? '› ' : '  '}</Text>
                 <Text bold={current}>{row.label.padEnd(22)}</Text>
-                {done && <Text>{row.value}</Text>}
+                {done && row.value && <Text>{row.value}</Text>}
               </Text>
               {current && <Box marginLeft={4} marginY={1} flexDirection="column">{renderStep(row.key)}</Box>}
             </Box>
           );
         })}
-        <Text dimColor>{'  '}{'AI help'.padEnd(22)}coming in a later version</Text>
         <Text dimColor>{'  '}{'LeetCode login'.padEnd(22)}coming in a later version</Text>
       </Box>
       <Box marginTop={1}>
@@ -102,12 +106,24 @@ export function Setup({ ctx, config, firstRun, onDone }) {
         </>
       );
     }
-    return (
-      <TextInput
-        prompt=""
-        initialValue={tildePath(answers.workspace)}
-        onSubmit={(value) => finishWith(expandHome(value.trim() || answers.workspace))}
-      />
-    );
+    if (key === 'workspace') {
+      return (
+        <TextInput
+          prompt=""
+          initialValue={tildePath(answers.workspace)}
+          onSubmit={(value) => answer('workspace', expandHome(value.trim() || answers.workspace))}
+        />
+      );
+    }
+    const items = aiReady
+      ? [
+          { label: 'Keep it', value: 'later', hint: `${config.ai.provider}, ${config.ai.model}` },
+          { label: 'Change it now', value: 'now' },
+        ]
+      : [
+          { label: 'Later', value: 'later', hint: 'type /ai anytime' },
+          { label: 'Now', value: 'now', hint: 'hints, explanations, chat; Claude, OpenAI, Gemini or a local model' },
+        ];
+    return <Select items={items} initial="later" onSelect={finish} />;
   }
 }

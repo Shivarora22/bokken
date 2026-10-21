@@ -1,5 +1,26 @@
-import { readJson, writeJson } from './json-file.js';
-import { defaultWorkspace, getPaths } from './paths.js';
+import os from 'node:os';
+import path from 'node:path';
+import { readJson, writeJson } from './util.js';
+
+// bokken's own files: ~/.bokken (or $BOKKEN_HOME) with config.json, credentials.json and the database.
+
+// --- Paths -----------------------------------------------------------------
+
+export function getPaths(env = process.env) {
+  const home = env.BOKKEN_HOME ? path.resolve(env.BOKKEN_HOME) : path.join(os.homedir(), '.bokken');
+  return {
+    home,
+    config: path.join(home, 'config.json'),
+    credentials: path.join(home, 'credentials.json'),
+    db: path.join(home, 'bokken.db'),
+  };
+}
+
+export function defaultWorkspace() {
+  return path.join(os.homedir(), 'leetcode-solutions');
+}
+
+// --- config.json -----------------------------------------------------------
 
 const DEFAULTS = {
   language: 'python3',
@@ -74,4 +95,20 @@ function merge(defaults, saved) {
     result[key] = isObject(value) && isObject(defaults[key]) ? merge(defaults[key], value) : value;
   }
   return result;
+}
+
+// --- credentials.json ------------------------------------------------------
+
+/**
+ * @typedef {{ leetcode?: { session: string, csrftoken: string }, ai?: { apiKey: string } }} Credentials
+ */
+
+/** @returns {Credentials} */
+export function loadCredentials(file = getPaths().credentials) {
+  return readJson(file) ?? {};
+}
+
+/** Only the user can read the file (mode 0600). Windows ignores the mode. */
+export function saveCredentials(credentials, file = getPaths().credentials) {
+  writeJson(file, credentials, { mode: 0o600 });
 }

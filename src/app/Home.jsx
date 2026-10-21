@@ -1,10 +1,10 @@
 import chalk from 'chalk';
 import { Box, Text } from 'ink';
-import { humanDuration } from '../format.js';
+import { humanDuration } from '../util.js';
 import { Rule, ScrollBox } from './components.jsx';
 import { textLines } from './markdown-lines.js';
 
-export const MESSAGE_STYLES = { error: chalk.red, success: chalk.green, you: chalk.dim, info: (s) => s };
+export const MESSAGE_STYLES = { error: chalk.red, success: chalk.green, you: chalk.dim, pending: chalk.dim, info: (s) => s };
 
 export function Difficulty({ value }) {
   const color = { Easy: 'green', Medium: 'yellow', Hard: 'red' }[value];
