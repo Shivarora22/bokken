@@ -61,6 +61,6 @@ export async function openApp({ version, start, showUsage = false }) {
     }
   });
 
-  const app = render(<App version={version} ctx={ctx} firstRun={firstRun} start={start} showUsage={showUsage} />, { alternateScreen: true });
+  const app = render(<App version={version} ctx={ctx} firstRun={firstRun} start={start} showUsage={showUsage} />, { alternateScreen: true, exitOnCtrlC: false });
   await app.waitUntilExit();
 }

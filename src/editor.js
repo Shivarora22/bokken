@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { focusSplit, openSplit, SPLIT_NAMES } from './split.js';
@@ -82,13 +82,15 @@ function editorName(command) {
  *
  * @param {Editor} editor
  * @param {string} file
+ * @param {{ platform?: NodeJS.Platform, onStart?: (child: import('node:child_process').ChildProcess) => void }} [options]
  */
-export function runEditor(editor, file, { platform = process.platform } = {}) {
+export function runEditor(editor, file, { platform = process.platform, onStart } = {}) {
   // Node won't spawn .cmd/.bat files without a shell.
   const shell = platform === 'win32' && /\.(cmd|bat)$/i.test(editor.command);
   const quote = (arg) => (shell ? `"${arg}"` : arg);
   return new Promise((resolve, reject) => {
     const child = spawn(quote(editor.command), [...editor.args, file].map(quote), { stdio: 'inherit', shell });
+    onStart?.(child);
     child.on('error', reject);
     child.on('exit', (code, signal) => resolve(code ?? (signal ? 128 : 1)));
   });
@@ -121,10 +123,30 @@ export async function runEditorWithLock(lockPath, [command, ...args]) {
   process.on('SIGINT', () => {});
   process.on('SIGQUIT', () => {});
   // Closing the pane hangs up both processes.
-  for (const signal of ['SIGHUP', 'SIGTERM']) process.on(signal, () => process.exit(129));
+  process.on('SIGHUP', () => process.exit(129));
+  // Quitting bokken asks the editor to close (closeEditor). It's passed on as the hang-up the
+  // editor would get if its tab closed, so unsaved work goes to its swap or backup file.
+  let editorProcess;
+  process.on('SIGTERM', () => editorProcess?.kill('SIGHUP'));
 
   const file = args.pop();
-  return runEditor({ name: editorName(command), command, args }, file);
+  return runEditor({ name: editorName(command), command, args }, file, { onStart: (child) => (editorProcess = child) });
+}
+
+/**
+ * Closes the editor `runEditorWithLock` started, and its pane with it. Returns false when it
+ * wasn't open. Windows has no signals, so there the wrapper and editor are ended outright.
+ */
+export function closeEditor(lockPath, { platform = process.platform } = {}) {
+  const pid = readLockPid(lockPath);
+  if (!pid || !isEditorOpen(lockPath)) return false;
+  try {
+    if (platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    else process.kill(pid, 'SIGTERM');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Whether an editor started by `runEditorWithLock` is still open. */
@@ -181,18 +203,16 @@ export function createEditorSession({ editor, file, lockPath, cliCommand, env = 
   async function openInSplit(kind) {
     if (isEditorOpen(lockPath)) {
       await focusSplit(kind, paneId);
-      return [`Switched to ${editor.name}.`];
+      return;
     }
     paneId = await openSplit(kind, {
       commandLine: [...cliCommand, '__editor', lockPath, '--', editor.command, ...editor.args, file],
       cwd: path.dirname(file),
       env,
     });
-    return [`Opened ${editor.name} in a ${SPLIT_NAMES[kind]} split${paneId ? ` (pane ${paneId})` : ''}.`];
   }
 
   async function handOff(suspendTerminal, elapsed) {
-    const started = Date.now();
     await suspendTerminal(async () => {
       // The app is off screen, so the timer moves to the tab's title.
       const tick = () => stdout.write(titleSequence(`⏱ ${formatDuration(elapsed())} · bokken`));
@@ -206,16 +226,17 @@ export function createEditorSession({ editor, file, lockPath, cliCommand, env = 
         stdout.write(RESTORE_TITLE);
       }
     });
-    return [`Back from ${editor.name} after ${formatDuration(Date.now() - started)}.`];
   }
 
   return {
     editor,
     file,
     isOpen: () => isEditorOpen(lockPath),
+    close: () => closeEditor(lockPath),
 
     /**
-     * Opens the editor, or focuses it if it's already open. Returns lines for the log.
+     * Opens the editor, or focuses it if it's already open. Returns the problems worth
+     * telling the user about; empty when it all went well.
      *
      * @param {{
      *   suspendTerminal: import('ink').SuspendTerminal,
@@ -226,12 +247,17 @@ export function createEditorSession({ editor, file, lockPath, cliCommand, env = 
      */
     async open({ suspendTerminal, elapsed, split: kind }) {
       if (!editor) return ['No terminal editor found. Install one, such as nvim, micro or nano.'];
-      if (!kind) return handOff(suspendTerminal, elapsed);
+      if (!kind) {
+        await handOff(suspendTerminal, elapsed);
+        return [];
+      }
       try {
-        return await openInSplit(kind);
+        await openInSplit(kind);
+        return [];
       } catch (error) {
         const reason = error.code === 'ENOENT' ? `${error.path} not found` : error.message.trim();
-        return [`Couldn't open a ${SPLIT_NAMES[kind]} split (${reason}). Using the full screen instead.`, ...(await handOff(suspendTerminal, elapsed))];
+        await handOff(suspendTerminal, elapsed);
+        return [`Couldn't open a ${SPLIT_NAMES[kind]} split (${reason}), so the editor used the full screen.`];
       }
     },
   };
