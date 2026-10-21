@@ -16,23 +16,46 @@ const GUI_EDITORS = new Set(['code', 'code-insiders', 'cursor', 'codium', 'subl'
  */
 
 /**
- * Picks a terminal editor. The user's own setting comes first: $VISUAL, then $EDITOR,
+ * Picks a terminal editor. The one chosen in setup comes first, then $VISUAL and $EDITOR,
  * the standard Unix variables for your editor ("visual" means full-screen, like vim,
  * not GUI). A GUI editor there is skipped. Otherwise, the first terminal editor installed.
  *
- * @param {{ env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform, preferred?: string | null }} [options]
  * @returns {Editor | null}
  */
-export function findEditor({ env = process.env, platform = process.platform } = {}) {
-  for (const setting of [env.VISUAL, env.EDITOR]) {
-    const editor = setting && parseEditorSetting(setting.trim(), { env, platform });
-    if (editor && !GUI_EDITORS.has(editor.name)) return editor;
+export function findEditor({ env = process.env, platform = process.platform, preferred } = {}) {
+  return listEditors({ env, platform, preferred })[0] ?? null;
+}
+
+/** Every terminal editor available, best first, for setup to offer. */
+export function listEditors({ env = process.env, platform = process.platform, preferred } = {}) {
+  const found = [];
+  const add = (editor) => {
+    if (editor && !GUI_EDITORS.has(editor.name) && !found.some((e) => e.command === editor.command)) found.push(editor);
+  };
+  for (const setting of [preferred, env.VISUAL, env.EDITOR]) {
+    if (setting) add(parseEditorSetting(setting.trim(), { env, platform }));
   }
   for (const name of TERMINAL_EDITORS) {
     if (name === 'edit' && platform !== 'win32') continue;
     const command = which(name, { env, platform });
-    if (command) return { name, command, args: [] };
+    if (command) add({ name, command, args: [] });
   }
+  return found;
+}
+
+/**
+ * The command that installs micro (easy for beginners: ctrl+s saves, ctrl+q quits), or
+ * null when no known package manager is around. bokken only runs it if the user says yes.
+ */
+export function installSuggestion({ env = process.env, platform = process.platform } = {}) {
+  const has = (name) => which(name, { env, platform }) !== null;
+  if (platform === 'win32') return has('winget') ? 'winget install zyedidia.micro' : null;
+  if (platform === 'darwin') return has('brew') ? 'brew install micro' : null;
+  if (has('apt-get')) return 'sudo apt install micro';
+  if (has('dnf')) return 'sudo dnf install micro';
+  if (has('pacman')) return 'sudo pacman -S micro';
+  if (has('brew')) return 'brew install micro';
   return null;
 }
 
@@ -63,6 +86,15 @@ export function runEditor(editor, file, { platform = process.platform } = {}) {
     const child = spawn(quote(editor.command), [...editor.args, file].map(quote), { stdio: 'inherit', shell });
     child.on('error', reject);
     child.on('exit', (code, signal) => resolve(code ?? (signal ? 128 : 1)));
+  });
+}
+
+/** Runs an install command (from `installSuggestion`) in this terminal, so sudo can ask for a password. */
+export function runInstall(command) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, { stdio: 'inherit', shell: true });
+    child.on('error', reject);
+    child.on('exit', (code) => resolve(code ?? 1));
   });
 }
 

@@ -27,14 +27,20 @@
     "build": "node scripts/build.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "record": "node scripts/record-fixtures.js",
+    "smoke": "node scripts/smoke.js",
     "prepack": "npm run build"
   },
   "devDependencies": {
+    "chalk": "6.0.1",
     "commander": "15.0.0",
     "esbuild": "0.28.2",
     "ink": "8.0.0",
     "ink-testing-library": "4.0.0",
     "react": "19.3.1",
-    "vitest": "5.0.5"
+    "string-width": "8.3.0",
+    "turndown": "7.2.4",
+    "vitest": "5.0.5",
+    "wrap-ansi": "10.0.2"
   }
 }

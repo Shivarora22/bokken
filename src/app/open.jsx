@@ -1,49 +1,62 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { render } from 'ink';
-import { findEditor } from '../terminal/editor.js';
+import { loadConfig, saveConfig } from '../config.js';
+import { loadCredentials } from '../credentials.js';
+import { openDb } from '../db.js';
+import { createClient } from '../leetcode/client.js';
+import { getPaths } from '../paths.js';
+import { findEditor, installSuggestion, listEditors, runInstall } from '../terminal/editor.js';
 import { createEditorSession } from '../terminal/session.js';
-import { detectSplit, mightBeWindowsTerminal } from '../terminal/split.js';
+import { resolveSplit } from '../terminal/split.js';
+import { recordEvent } from '../tracking.js';
 import { App } from './App.jsx';
 
-// M1 spike: a scratch solution file to edit. M3 replaces it with real problem folders.
-const SAMPLE = `# bokken M1 spike: edit and save this file, and watch bokken notice.
-
-# @bokken code=start
-class Solution:
-    def twoSum(self, nums, target):
-        pass
-# @bokken code=end
-`;
-
 /**
- * Opens the full-screen app and resolves once the user quits.
- * The alternate screen gives the terminal back exactly as it was, like vim does.
+ * Opens the full-screen app and resolves once the user quits. The alternate screen gives
+ * the terminal back exactly as it was, like vim does.
  *
- * @param {{ version: string }} props
+ * @param {{ version: string, start?: { daily?: boolean, ref?: string, setup?: boolean } }} options
  */
-export async function openApp({ version }) {
-  const dir = path.join(os.tmpdir(), 'bokken-spike');
-  const file = path.join(dir, 'solution.py');
-  mkdirSync(dir, { recursive: true });
-  try {
-    writeFileSync(file, SAMPLE, { flag: 'wx' });
-  } catch (error) {
-    // Never overwrite: keep what the user wrote last time.
-    if (error.code !== 'EEXIST') throw error;
-  }
+export async function openApp({ version, start }) {
+  const paths = getPaths();
+  const firstRun = !existsSync(paths.config);
+  const db = await openDb(paths.db);
+  const { leetcode } = loadCredentials(paths.credentials);
+  const current = { attemptId: null, idleMs: undefined };
 
-  const split = detectSplit();
-  const session = createEditorSession({
-    editor: findEditor(),
-    file,
-    split,
-    mightBeWindowsTerminal: !split && mightBeWindowsTerminal(),
-    lockPath: path.join(dir, '.editor.lock'),
-    cliCommand: [process.execPath, process.argv[1]],
+  const ctx = {
+    db,
+    client: createClient({ session: leetcode?.session, csrftoken: leetcode?.csrftoken }),
+    loadConfig: () => loadConfig(paths.config),
+    saveConfig: (config) => saveConfig(config, paths.config),
+    listEditors,
+    installSuggestion,
+    runInstall,
+    resolveSplit: (config) => resolveSplit(config),
+    createEditorSession: ({ file, slug, config }) => {
+      const runDir = path.join(paths.home, 'run');
+      mkdirSync(runDir, { recursive: true });
+      return createEditorSession({
+        editor: findEditor({ preferred: config.editor }),
+        file,
+        lockPath: path.join(runDir, `${slug}.lock`),
+        cliCommand: [process.execPath, process.argv[1]],
+      });
+    },
+    // The attempt on screen, so it can be closed however bokken exits.
+    current,
+  };
+
+  process.on('exit', () => {
+    try {
+      if (current.attemptId) recordEvent(db, current.attemptId, 'close', { idleMs: current.idleMs });
+      db.close();
+    } catch {
+      // Exiting anyway.
+    }
   });
 
-  const app = render(<App version={version} session={session} />, { alternateScreen: true });
+  const app = render(<App version={version} ctx={ctx} firstRun={firstRun} start={start} />, { alternateScreen: true });
   await app.waitUntilExit();
 }

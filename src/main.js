@@ -5,7 +5,7 @@ import { runEditorWithLock } from './terminal/editor.js';
 const defaults = {
   isInteractive: () => Boolean(process.stdin.isTTY && process.stdout.isTTY),
   // Loaded on demand, so plain commands don't pay for Ink and React.
-  openApp: async () => (await import('./app/open.jsx')).openApp({ version: pkg.version }),
+  openApp: async (options = {}) => (await import('./app/open.jsx')).openApp({ version: pkg.version, ...options }),
 };
 
 /**
@@ -18,20 +18,25 @@ const defaults = {
 export async function main(argv, deps = {}) {
   const { isInteractive, openApp, output } = { ...defaults, ...deps };
 
-  const program = new Command('bokken')
-    .description(pkg.description)
-    .version(pkg.version, '-v, --version')
-    .exitOverride()
-    .action(async () => {
-      if (!isInteractive()) {
-        program.error('bokken needs an interactive terminal to open the practice app. See `bokken --help`.', {
-          exitCode: 2,
-        });
-      }
-      await openApp();
-    });
+  const program = new Command('bokken').description(pkg.description).version(pkg.version, '-v, --version').exitOverride();
   // Before adding commands, so they inherit it.
   if (output) program.configureOutput(output);
+
+  const inApp = (options) => async () => {
+    if (!isInteractive()) {
+      program.error('bokken needs an interactive terminal to open the practice app. See `bokken --help`.', { exitCode: 2 });
+    }
+    await openApp(options);
+  };
+
+  program.action(inApp({}));
+  program.command('today').description("open today's problem").action(inApp({ start: { daily: true } }));
+  program
+    .command('open')
+    .description('open a problem by number, slug, title or link')
+    .argument('<problem...>')
+    .action((words) => inApp({ start: { ref: words.join(' ') } })());
+  program.command('setup').description('choose your language, editor and solutions folder').action(inApp({ start: { setup: true } }));
 
   // What a split pane runs: the editor, plus a lock file that says it's open.
   program

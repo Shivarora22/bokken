@@ -7,6 +7,7 @@ const DEFAULTS = {
   workspace: null,
   ai: { provider: null, model: null, baseUrl: null, apiKeyEnv: null, effort: 'medium', maxContext: null },
   stats: { idleMinutes: 10 },
+  terminal: { windowsTerminal: null },
 };
 
 // `?` means the setting can be unset (null).
@@ -21,6 +22,8 @@ const TYPES = {
   'ai.effort': 'string',
   'ai.maxContext': 'number?',
   'stats.idleMinutes': 'number',
+  // Your answer to "Is this window Windows Terminal?", for when bokken can't tell.
+  'terminal.windowsTerminal': 'boolean?',
 };
 
 export const SETTINGS = Object.keys(TYPES);
@@ -48,6 +51,9 @@ export function setSetting(config, key, text) {
   } else if (type.startsWith('number')) {
     value = Number(text);
     if (!Number.isFinite(value) || value <= 0) throw new Error(`${key} must be a positive number.`);
+  } else if (type.startsWith('boolean')) {
+    if (!['true', 'false', 'yes', 'no'].includes(text)) throw new Error(`${key} must be yes or no.`);
+    value = text === 'true' || text === 'yes';
   }
 
   const next = structuredClone(config);

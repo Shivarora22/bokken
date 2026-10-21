@@ -11,16 +11,13 @@ import { RESTORE_TITLE, SAVE_TITLE, titleSequence } from './title.js';
  * @param {{
  *   editor: import('./editor.js').Editor | null,
  *   file: string,
- *   split: import('./split.js').SplitKind | null,
- *   mightBeWindowsTerminal?: boolean,
  *   lockPath: string,
  *   cliCommand: string[],
  *   env?: NodeJS.ProcessEnv,
  *   stdout?: NodeJS.WriteStream,
- * }} options `split` is the detected split; the app may still choose another.
- *   `cliCommand` runs this bokken (Node plus script), for the split pane.
+ * }} options `cliCommand` runs this bokken (Node plus script), for the split pane.
  */
-export function createEditorSession({ editor, file, split, mightBeWindowsTerminal = false, lockPath, cliCommand, env = process.env, stdout = process.stdout }) {
+export function createEditorSession({ editor, file, lockPath, cliCommand, env = process.env, stdout = process.stdout }) {
   let paneId = null;
 
   async function openInSplit(kind) {
@@ -57,8 +54,6 @@ export function createEditorSession({ editor, file, split, mightBeWindowsTermina
   return {
     editor,
     file,
-    split,
-    mightBeWindowsTerminal,
     isOpen: () => isEditorOpen(lockPath),
 
     /**

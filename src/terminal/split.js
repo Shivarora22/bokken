@@ -27,6 +27,20 @@ export function detectSplit(env = process.env) {
   return null;
 }
 
+/**
+ * The split to use, and whether to ask "Is this window Windows Terminal?". A saved answer
+ * only applies when bokken can't tell, so tmux still wins inside tmux.
+ *
+ * @returns {{ split: SplitKind | null, askWindowsTerminal: boolean }}
+ */
+export function resolveSplit(config, env = process.env, options) {
+  const split = detectSplit(env);
+  if (split || !mightBeWindowsTerminal(env, options)) return { split, askWindowsTerminal: false };
+  const answer = config.terminal?.windowsTerminal;
+  if (answer == null) return { split: null, askWindowsTerminal: true };
+  return { split: answer ? 'wt' : null, askWindowsTerminal: false };
+}
+
 export function mightBeWindowsTerminal(env = process.env, { platform = process.platform } = {}) {
   if (env.BOKKEN_SPLIT) return false;
   if (platform !== 'win32' && !env.WSL_DISTRO_NAME) return false;
