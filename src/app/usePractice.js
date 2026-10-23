@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { useApp } from 'ink';
 import { useEffect, useRef, useState } from 'react';
 import { LEVEL_NAMES } from '../ai/prompts.js';
-import { extractCode } from '../languages.js';
+import { extractCode, solutionFile } from '../languages.js';
 import { htmlToMarkdown } from '../markdown.js';
 import { aiHints, attemptTimes, finishAttempt, recordEvent, recordHint } from '../tracking.js';
 import { humanDuration, watchSaves } from '../util.js';
@@ -87,6 +87,7 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
         hintsShown: loaded.attempt.hints_seen,
         aiLevel: loaded.attempt.ai_level,
         aiHints: earlierAiHints,
+        solutionShown: false,
         chat: [],
         done: false,
         lastSaveAt: null,
@@ -159,12 +160,19 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
     say(`✓ Solved in ${humanDuration(active * 1000)} active (${humanDuration(wall * 1000)} total). Next: /today or /open.`, 'success');
   }
 
-  /** What the coach needs: the problem, your code, and the hints you already have. */
+  /**
+   * What the coach needs: the problem, your code, and the hints you already have.
+   * `wroteCode` is false while the file still holds only LeetCode's starter code.
+   */
   function coachContext() {
     const p = practiceRef.current;
+    const code = currentCode(p.file);
+    const squash = (text) => text.replace(/\s+/g, '');
+    const starter = extractCode(solutionFile(p.problem, p.lang) ?? '') ?? '';
     return {
       problem: p.problem,
-      code: currentCode(p.file),
+      code,
+      wroteCode: Boolean(squash(code)) && squash(code) !== squash(starter),
       lang: p.lang,
       lastResult: null,
       earlierHints: [

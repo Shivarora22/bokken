@@ -91,11 +91,12 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
     withAi(async (signal) => {
       const id = say('Thinking…', 'pending');
       try {
-        const { code } = practice.coachContext();
+        const { wroteCode } = practice.coachContext();
         const hintsUsed = current.hintsShown + current.aiHints.length;
-        const { mode, log, usage } = await coachRef.current.classify({ question, hintsUsed, hasCode: Boolean(code.trim()), signal });
+        const { mode, log, usage } = await coachRef.current.classify({ question, hintsUsed, hasCode: wroteCode, signal });
         ifActive((attemptId) => recordAi(ctx.db, attemptId, { log: { ...log, mode }, usage, question: true }, { idleMs }));
         if (mode === 'hint') return await aiHint(signal, { level: Math.min(3, current.aiLevel + 1), question, pendingId: id });
+        if (mode === 'solution' && current.solutionShown) return await stream(signal, { mode, variant: 'asked', question, pendingId: id });
         if (mode === 'solution') {
           updateMessage(id, { kind: 'info', text: 'That sounds like a request for the full solution.' });
           solutionQuestion.current = question;
@@ -109,7 +110,7 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
     });
   }
 
-  async function stream(signal, { mode, question, pendingId }) {
+  async function stream(signal, { mode, variant, question, pendingId }) {
     const current = practiceRef.current;
     const id = pendingId ?? say('Thinking…', 'pending');
     let text = '';
@@ -122,6 +123,8 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
       const result = await coachRef.current.answer({
         ...practice.coachContext(),
         mode,
+        variant,
+        solutionShown: current.solutionShown,
         level: current.aiLevel,
         history: current.chat,
         question,
@@ -137,11 +140,16 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
       } else {
         updateMessage(id, { kind: 'ai', text: (result.text || '(no answer)') + usageNote(result.usage) });
       }
+      const gaveSolution = mode === 'solution' || result.gaveSolution;
       ifActive((attemptId) => {
         recordAi(ctx.db, attemptId, { log: result.log, usage: result.usage }, { idleMs });
-        if (mode === 'solution' || result.gaveSolution) markViewedSolution(ctx.db, attemptId);
+        if (gaveSolution) markViewedSolution(ctx.db, attemptId);
       });
-      updatePractice((p) => ({ ...p, chat: [...p.chat, { role: 'user', text: question }, { role: 'assistant', text: result.text }].slice(-20) }));
+      updatePractice((p) => ({
+        ...p,
+        solutionShown: p.solutionShown || gaveSolution,
+        chat: [...p.chat, { role: 'user', text: question }, { role: 'assistant', text: result.text }].slice(-20),
+      }));
     } catch (error) {
       clearTimeout(timer);
       if (error.code === 'aborted') updateMessage(id, { kind: 'ai', text: `${text}${text ? '\n\n' : ''}(stopped)` });
@@ -149,7 +157,6 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
     }
   }
 
-  /** The answer to "[h] one more hint · [s] show the solution · [c] cancel". */
   function chooseSolution(choice) {
     setConfirming(false);
     if (choice === 'hint') return nextHint();
@@ -160,7 +167,7 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
 
   function newChat() {
     if (!practiceRef.current) return say(NEED_PROBLEM);
-    updatePractice((p) => ({ ...p, chat: [] }));
+    updatePractice((p) => ({ ...p, chat: [], solutionShown: false }));
     say('Started a fresh chat. Your hints so far still count.');
   }
 

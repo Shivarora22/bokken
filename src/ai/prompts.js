@@ -114,23 +114,32 @@ export function parseMode(reply) {
 
 // --- Answering a question --------------------------------------------------
 
-export const ASK_VERSION = 'ask-1';
+export const ASK_VERSION = 'ask-2';
 
 const BASE = `You are a coding-interview coach inside bokken, a terminal tool. Your answer is shown in a small terminal pane: keep it short and use plain text or simple Markdown.`;
 
-export function askSystemPrompt(mode, lang) {
-  if (mode === 'solution') {
-    const name = LANGUAGES[lang]?.name ?? lang;
-    return `${BASE}
-The user asked for the full solution and confirmed they want it.
-Give, in this order:
-1. The idea in two or three sentences.
-2. The complete solution in ${name}, in one fenced code block, using the starter code's class and function signature.
-3. Time and space complexity, one line each.`;
-  }
+const SOLUTIONS = {
+  all: (name) => `The user asked for the solution and confirmed they want it.
+Show every main way to solve it (two to four), from the simplest to the most efficient. For each one:
+- A heading with its number and name, like "### 1. Brute force".
+- The idea in one or two sentences.
+- The complete code in ${name}, in a fenced code block, using the starter code's class and function signature.
+- Its time and space complexity, on one line.
+End with one line saying which approach is the most efficient, judged by the constraints (like n ≤ 10^5).`,
+  asked: (name) => `The user has already seen the solutions and is asking for more (<question>), such as a faster, simpler or different version.
+Give what they ask for: the idea, the complete code in ${name} in a fenced code block, and its complexity.`,
+};
+
+export function askSystemPrompt(mode, lang, { variant = 'all', solutionShown = false } = {}) {
+  const name = LANGUAGES[lang]?.name ?? lang;
+  if (mode === 'solution') return `${BASE}\n${(SOLUTIONS[variant] ?? SOLUTIONS.all)(name)}`;
   if (mode === 'other') {
     return `${BASE}
 The user asked something that isn't about this problem. Answer briefly, in at most three sentences, then nudge them back to the problem.`;
+  }
+  if (solutionShown) {
+    return `${BASE}
+The user has already seen a full solution, so explain anything they ask: how a line works, why the approach is correct, other approaches and their complexity, how to make it faster. Show code when it helps.`;
   }
   return `${BASE}
 The user wants something explained: the problem, an example, a concept, an error message, or their own code.

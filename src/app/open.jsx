@@ -5,7 +5,7 @@ import { createCoach } from '../ai/coach.js';
 import { createAdapter } from '../ai/providers.js';
 import { openDb } from '../db.js';
 import { createEditorSession, findEditor, installSuggestion, listEditors, runInstall } from '../editor.js';
-import { createClient } from '../leetcode.js';
+import { createClient, pruneProblems } from '../leetcode.js';
 import { getPaths, loadConfig, loadCredentials, saveConfig, saveCredentials } from '../settings.js';
 import { resolveSplit } from '../split.js';
 import { recordEvent } from '../tracking.js';
@@ -21,6 +21,7 @@ export async function openApp({ version, start, showUsage = false }) {
   const paths = getPaths();
   const firstRun = !existsSync(paths.config);
   const db = await openDb(paths.db);
+  pruneProblems(db);
   const { leetcode } = loadCredentials(paths.credentials);
   const current = { attemptId: null, idleMs: undefined };
 

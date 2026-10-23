@@ -138,6 +138,8 @@ export const USER_STATUS = `
 const DIFFICULTIES = { 1: 'Easy', 2: 'Medium', 3: 'Hard' };
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+// A cached problem older than this is fetched again, and pruneProblems deletes it.
+const PROBLEM_MAX_AGE_DAYS = 30;
 
 /**
  * @typedef {{ frontendId: number, questionId: number, slug: string, title: string,
@@ -260,7 +262,7 @@ async function searchProblem(client, { frontendId, slug, title }) {
  * A problem's full details, from the cache when it's under `maxAgeDays` old. When LeetCode
  * can't be reached, an older cached copy is better than nothing.
  */
-export async function getProblem(db, client, slug, { now = new Date(), maxAgeDays = 30 } = {}) {
+export async function getProblem(db, client, slug, { now = new Date(), maxAgeDays = PROBLEM_MAX_AGE_DAYS } = {}) {
   const cached = db.prepare('SELECT data, fetched_at FROM problems WHERE slug = ?').get(slug);
   const cachedProblem = cached && JSON.parse(cached.data);
   // A paid problem fetched without Premium has no content; fetch it again in case the user has Premium now.
@@ -286,6 +288,15 @@ export async function getProblem(db, client, slug, { now = new Date(), maxAgeDay
     for (const topic of problem.topics) insertTopic.run(problem.slug, topic.slug, topic.name);
   });
   return problem;
+}
+
+/**
+ * Deletes cached problems older than `maxAgeDays`: they'd be fetched again anyway, so the
+ * cache only holds what you opened lately. Topics stay, since the stats need them.
+ */
+export function pruneProblems(db, { now = new Date(), maxAgeDays = PROBLEM_MAX_AGE_DAYS } = {}) {
+  const cutoff = new Date(now.getTime() - maxAgeDays * DAY).toISOString();
+  return Number(db.prepare('DELETE FROM problems WHERE fetched_at < ?').run(cutoff).changes);
 }
 
 function normalizeQuestion(q) {

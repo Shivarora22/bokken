@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput, useWindowSize } from 'ink';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PROVIDERS } from '../ai/providers.js';
 import { htmlToMarkdown } from '../markdown.js';
 import { attemptTimes, latestActiveAttempt, practiceSummary, recordEvent } from '../tracking.js';
@@ -79,8 +79,9 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     }
   }, [screen]);
 
-  // A problem was opened: show it from the top.
-  useEffect(() => {
+  // A problem was opened: show it from the top. A layout effect, so it's done before the next
+  // key is read; otherwise a quick tab could land first and be undone.
+  useLayoutEffect(() => {
     if (!current?.attemptId) return;
     setScreen('problem');
     setView('problem');
@@ -218,9 +219,10 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
         return;
       }
       if (coach.confirming) {
-        if (input === 'h') coach.chooseSolution('hint');
-        else if (input === 's') coach.chooseSolution('solution');
-        else if (input === 'c' || key.escape) coach.chooseSolution('cancel');
+        const letter = input.toLowerCase();
+        if (letter === 'h') coach.chooseSolution('hint');
+        else if (letter === 's') coach.chooseSolution('solution');
+        else if (letter === 'c' || key.escape) coach.chooseSolution('cancel');
         return;
       }
       if (key.escape && coach.busy) {
@@ -322,7 +324,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
           <Home version={version} width={columns} height={rows - 3} {...home} today={today} messages={practice.messages} />
         )}
       </Box>
-      <Rule width={columns} />
+      <Rule width={columns} junction={inProblem && layout.wide ? { at: layout.dividerAt, char: '┴' } : undefined} />
       <Box paddingX={1} flexShrink={0}>
         {quitting && current ? (
           <Text color="yellow">
@@ -361,7 +363,7 @@ function SolutionChoice({ practice, idleMs, db }) {
         You've spent {spent} on this and used {used} hint{used === 1 ? '' : 's'}.
       </Text>
       <Text color="yellow">
-        <Text bold>[h]</Text> one more hint · <Text bold>[s]</Text> show the solution · <Text bold>[c]</Text> cancel
+        <Text bold>[h]</Text> one more hint · <Text bold>[s]</Text> show the solutions · <Text bold>[c]</Text> cancel
       </Text>
     </Box>
   );

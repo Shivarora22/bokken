@@ -1,8 +1,12 @@
 import { Box, Text, useInput, usePaste } from 'ink';
 import { useReducer, useRef, useState } from 'react';
 
-export function Rule({ width, title, focused = false }) {
-  if (!title) return <Text dimColor>{'─'.repeat(Math.max(0, width))}</Text>;
+/** A horizontal line. `junction` ({ at, char }) joins it to a vertical one, like ┬ or ┴. */
+export function Rule({ width, title, focused = false, junction }) {
+  if (!title) {
+    const line = '─'.repeat(Math.max(0, width));
+    return <Text dimColor>{junction ? line.slice(0, junction.at) + junction.char + line.slice(junction.at + 1) : line}</Text>;
+  }
   const label = ` ${title} `;
   return (
     <Text>

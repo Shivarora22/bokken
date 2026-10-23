@@ -15,10 +15,11 @@ export const WIDE_COLUMNS = 100;
 export function problemLayout(columns, rows) {
   const available = rows - APP_ROWS;
   if (columns >= WIDE_COLUMNS) {
+    // The problem takes the left 58%; a vertical line at `dividerAt` separates the coach.
     const left = Math.floor(columns * 0.58);
     // Header, a rule, and each section's title.
     const height = Math.max(3, available - 3);
-    return { wide: true, problem: { width: left - 2, height }, coach: { width: columns - left - 2, height } };
+    return { wide: true, dividerAt: left, problem: { width: left - 2, height }, coach: { width: columns - left - 3, height } };
   }
   // Title, timer, tabs and a rule.
   const height = Math.max(3, available - 4);
@@ -53,17 +54,25 @@ export function ProblemView({ practice, columns, layout, view, unread, problemLi
             {timer}
           </Box>
         </Box>
-        <Rule width={columns} />
+        <Rule width={columns} junction={{ at: layout.dividerAt, char: '┬' }} />
         <Box flexDirection="row">
-          {[
-            ['problem', 'Problem'],
-            ['coach', 'Coach'],
-          ].map(([key, label]) => (
-            <Box key={key} flexDirection="column" width={layout[key].width + 2} paddingX={1}>
-              <Rule width={layout[key].width} title={label} focused={view === key} />
-              <ScrollBox lines={lines[key]} height={layout[key].height} offset={offsets[key]} />
-            </Box>
-          ))}
+          <Box flexDirection="column" width={layout.problem.width + 2} paddingX={1}>
+            <Rule width={layout.problem.width} title="Problem" focused={view === 'problem'} />
+            <ScrollBox lines={lines.problem} height={layout.problem.height} offset={offsets.problem} />
+          </Box>
+          <Box
+            flexDirection="column"
+            width={layout.coach.width + 3}
+            paddingX={1}
+            borderStyle="single"
+            borderTop={false}
+            borderRight={false}
+            borderBottom={false}
+            borderDimColor
+          >
+            <Rule width={layout.coach.width} title="Coach" focused={view === 'coach'} />
+            <ScrollBox lines={lines.coach} height={layout.coach.height} offset={offsets.coach} />
+          </Box>
         </Box>
       </Box>
     );

@@ -50,8 +50,8 @@ const MIGRATIONS = [
   );
   CREATE INDEX attempts_by_slug ON attempts (slug);
 
+  -- No id of its own: an event belongs to its attempt, and the attempt has the UUID.
   CREATE TABLE events (
-    id TEXT PRIMARY KEY,
     attempt_id TEXT NOT NULL,
     type TEXT NOT NULL,
     at TEXT NOT NULL,

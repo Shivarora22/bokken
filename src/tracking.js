@@ -163,8 +163,7 @@ function lastEvent(db, attemptId) {
 }
 
 function insertEvent(db, attemptId, type, at, data) {
-  db.prepare('INSERT INTO events (id, attempt_id, type, at, data) VALUES (?, ?, ?, ?, ?)').run(
-    randomUUID(),
+  db.prepare('INSERT INTO events (attempt_id, type, at, data) VALUES (?, ?, ?, ?)').run(
     attemptId,
     type,
     at.toISOString(),

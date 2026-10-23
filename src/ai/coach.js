@@ -14,7 +14,7 @@ import {
 
 // --- Coach -----------------------------------------------------------------
 
-const MAX_TOKENS = { hint: 4000, classify: 16, explain: 6000, other: 2000, solution: 12000 };
+const MAX_TOKENS = { hint: 4000, classify: 16, explain: 6000, other: 2000, solution: 16000 };
 
 /**
  * The only part of bokken that talks to a model. It builds the prompts, applies the rules
@@ -69,10 +69,14 @@ export function createCoach(adapter, settings) {
       return { text, declined: result.declined, usage: addUsage(usage), log: log('hint', HINT_VERSION, { level, retried, stripped }) };
     },
 
-    /** explain, solution or other: streamed as it's written. */
-    async answer({ mode, problem, code, lang, lastResult, earlierHints, level, history, question, onText, signal }) {
+    /**
+     * explain, solution or other: streamed as it's written. A solution shows every approach,
+     * or answers a follow-up (`variant: 'asked'`). `solutionShown` lifts the hint-level limit
+     * on explanations.
+     */
+    async answer({ mode, variant, solutionShown, problem, code, lang, lastResult, earlierHints, level, history, question, onText, signal }) {
       const result = await adapter.streamChat({
-        system: askSystemPrompt(mode, lang),
+        system: askSystemPrompt(mode, lang, { variant, solutionShown }),
         messages: askMessages({ mode, problem, code, lang, lastResult, earlierHints, level, history, question, maxContext: settings.maxContext }),
         maxTokens: MAX_TOKENS[mode] ?? MAX_TOKENS.explain,
         onText,
@@ -83,7 +87,7 @@ export function createCoach(adapter, settings) {
         declined: result.declined,
         usage: result.usage,
         gaveSolution: containsSolution(result.text, problem.metaData),
-        log: log('ask', ASK_VERSION, { mode, level }),
+        log: log('ask', ASK_VERSION, { mode, level, ...(mode === 'solution' ? { variant: variant ?? 'all' } : {}) }),
       };
     },
   };
