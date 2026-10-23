@@ -11,6 +11,7 @@ const defaults = {
   // Loaded on demand, so plain commands don't pay for Ink and React.
   openApp: async (options = {}) => (await import('./app/open.jsx')).openApp({ version: pkg.version, ...options }),
   aiCommands: async () => ({ aiStatus, aiOff }),
+  logout,
 };
 
 /**
@@ -21,7 +22,7 @@ const defaults = {
  * @returns {Promise<number>}
  */
 export async function main(argv, deps = {}) {
-  const { isInteractive, openApp, aiCommands, output } = { ...defaults, ...deps };
+  const { isInteractive, openApp, aiCommands, logout: logoutFn, output } = { ...defaults, ...deps };
   const write = output?.writeOut ?? ((text) => process.stdout.write(text));
   let exitCode = 0;
 
@@ -61,6 +62,14 @@ export async function main(argv, deps = {}) {
     .description('turn AI off and delete a key bokken saved')
     .action(async () => {
       exitCode = (await aiCommands()).aiOff({ write });
+    });
+
+  program.command('login').description('log in to LeetCode, to run and submit your code').action(inApp({ start: { login: true } }));
+  program
+    .command('logout')
+    .description('forget the LeetCode login saved on this computer')
+    .action(() => {
+      exitCode = logoutFn({ write });
     });
 
   // What a split pane runs: the editor, plus a lock file that says it's open.
@@ -141,5 +150,20 @@ export function aiOff({ write, env = process.env, paths = getPaths(env) }) {
     saveCredentials(credentials, paths.credentials);
   }
   write(`AI is off.${hadKey ? ' The key bokken saved is deleted.' : ''} Turn it back on with: bokken ai setup\n`);
+  return 0;
+}
+
+// --- bokken logout ---------------------------------------------------------
+
+/** `bokken logout`. The session stays valid on LeetCode; logging out there ends it everywhere. */
+export function logout({ write, env = process.env, paths = getPaths(env) }) {
+  const credentials = loadCredentials(paths.credentials);
+  if (!credentials.leetcode) {
+    write("You weren't logged in to LeetCode.\n");
+    return 0;
+  }
+  delete credentials.leetcode;
+  saveCredentials(credentials, paths.credentials);
+  write('Logged out. The LeetCode login saved on this computer is deleted. To end it everywhere, log out on leetcode.com too.\n');
   return 0;
 }

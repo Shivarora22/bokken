@@ -14,18 +14,19 @@ const EDITOR_HINTS = {
   hx: 'modal, like vim',
 };
 
-const STEPS = ['language', 'editor', 'workspace', 'ai'];
+const STEPS = ['language', 'editor', 'workspace', 'ai', 'login'];
 
 /**
  * First run, `/setup` and `bokken setup`: language, editor, folder, and whether to set up
- * AI now. `onDone(config, { setupAi })`.
+ * AI and log in to LeetCode now. `onDone(config, { setupAi, setupLogin })`.
  */
 export function Setup({ ctx, config, firstRun, onDone }) {
   const { suspendTerminal } = useApp();
   const [step, setStep] = useState('language');
-  const [answers, setAnswers] = useState({ language: config.language, editor: config.editor, workspace: config.workspace });
+  const [answers, setAnswers] = useState({ language: config.language, editor: config.editor, workspace: config.workspace, ai: 'later' });
   const [editors, setEditors] = useState(() => ctx.listEditors({ preferred: config.editor }));
   const [note, setNote] = useState(null);
+  const [loggedIn] = useState(() => Boolean(ctx.loadCredentials().leetcode?.session));
   const suggestion = editors.length ? null : ctx.installSuggestion();
 
   const answer = (key, value) => {
@@ -33,10 +34,10 @@ export function Setup({ ctx, config, firstRun, onDone }) {
     setStep(STEPS[STEPS.indexOf(key) + 1]);
   };
 
-  const finish = (aiChoice) => {
+  const finish = (loginChoice) => {
     const next = { ...config, language: answers.language, editor: answers.editor, workspace: answers.workspace };
     ctx.saveConfig(next);
-    onDone(next, { setupAi: aiChoice === 'now' });
+    onDone(next, { setupAi: answers.ai === 'now', setupLogin: loginChoice === 'now' });
   };
   const aiReady = Boolean(config.ai.provider && config.ai.model);
 
@@ -57,6 +58,7 @@ export function Setup({ ctx, config, firstRun, onDone }) {
     { key: 'editor', label: 'Editor', value: editorName ?? 'none yet' },
     { key: 'workspace', label: 'Folder for solutions', value: tildePath(answers.workspace) },
     { key: 'ai', label: aiReady ? 'Change AI help?' : 'Set up AI help now?', value: '' },
+    { key: 'login', label: loggedIn ? 'Change LeetCode login?' : 'Log in to LeetCode now?', value: '' },
   ];
 
   return (
@@ -77,7 +79,6 @@ export function Setup({ ctx, config, firstRun, onDone }) {
             </Box>
           );
         })}
-        <Text dimColor>{'  '}{'LeetCode login'.padEnd(22)}coming in a later version</Text>
       </Box>
       <Box marginTop={1}>
         <Text dimColor>{step === 'workspace' ? 'Enter to confirm' : '↑↓ choose · Enter confirm'}</Text>
@@ -115,14 +116,26 @@ export function Setup({ ctx, config, firstRun, onDone }) {
         />
       );
     }
-    const items = aiReady
+    if (key === 'ai') {
+      const items = aiReady
+        ? [
+            { label: 'Keep it', value: 'later', hint: `${config.ai.provider}, ${config.ai.model}` },
+            { label: 'Change it now', value: 'now' },
+          ]
+        : [
+            { label: 'Later', value: 'later', hint: 'type /ai anytime' },
+            { label: 'Now', value: 'now', hint: 'hints, explanations, chat; Claude, OpenAI, Gemini or a local model' },
+          ];
+      return <Select items={items} initial="later" onSelect={(value) => answer('ai', value)} />;
+    }
+    const items = loggedIn
       ? [
-          { label: 'Keep it', value: 'later', hint: `${config.ai.provider}, ${config.ai.model}` },
-          { label: 'Change it now', value: 'now' },
+          { label: 'Keep it', value: 'later' },
+          { label: 'Log in again', value: 'now' },
         ]
       : [
-          { label: 'Later', value: 'later', hint: 'type /ai anytime' },
-          { label: 'Now', value: 'now', hint: 'hints, explanations, chat; Claude, OpenAI, Gemini or a local model' },
+          { label: 'Later', value: 'later', hint: 'type /login anytime' },
+          { label: 'Now', value: 'now', hint: 'to run and submit your code; you paste one cookie from your browser' },
         ];
     return <Select items={items} initial="later" onSelect={finish} />;
   }

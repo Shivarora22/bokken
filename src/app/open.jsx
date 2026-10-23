@@ -5,7 +5,7 @@ import { createCoach } from '../ai/coach.js';
 import { createAdapter } from '../ai/providers.js';
 import { openDb } from '../db.js';
 import { createEditorSession, findEditor, installSuggestion, listEditors, runInstall } from '../editor.js';
-import { createClient, pruneProblems } from '../leetcode.js';
+import { createClient, pruneProblems, signedInUser } from '../leetcode.js';
 import { getPaths, loadConfig, loadCredentials, saveConfig, saveCredentials } from '../settings.js';
 import { resolveSplit } from '../split.js';
 import { recordEvent } from '../tracking.js';
@@ -15,7 +15,7 @@ import { App } from './App.jsx';
  * Opens the full-screen app and resolves once the user quits. The alternate screen gives
  * the terminal back exactly as it was, like vim does.
  *
- * @param {{ version: string, start?: { daily?: boolean, ref?: string, setup?: boolean, aiSetup?: boolean }, showUsage?: boolean }} options
+ * @param {{ version: string, start?: { daily?: boolean, ref?: string, setup?: boolean, aiSetup?: boolean, login?: boolean }, showUsage?: boolean }} options
  */
 export async function openApp({ version, start, showUsage = false }) {
   const paths = getPaths();
@@ -27,7 +27,9 @@ export async function openApp({ version, start, showUsage = false }) {
 
   const ctx = {
     db,
-    client: createClient({ session: leetcode?.session, csrftoken: leetcode?.csrftoken }),
+    client: createClient({ session: leetcode?.session }),
+    // A pasted session is checked with a client of its own before it replaces the app's.
+    checkSession: (session) => signedInUser(createClient({ session })),
     env: process.env,
     loadConfig: () => loadConfig(paths.config),
     saveConfig: (config) => saveConfig(config, paths.config),

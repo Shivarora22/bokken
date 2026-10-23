@@ -1,7 +1,7 @@
 import { Box, Text, useInput } from 'ink';
 import { useEffect, useState } from 'react';
 import { asksForBaseUrl, chatModels, defaultModel, envKeyFor, PROVIDER_IDS, PROVIDERS, resolveAi } from '../ai/providers.js';
-import { Select, TextInput } from './components.jsx';
+import { Ask, Select, TextInput } from './components.jsx';
 
 /** `/ai` and `bokken ai setup`: provider, key, base URL (local servers), model. */
 export function AiSetup({ ctx, config, onDone, onCancel }) {
@@ -177,19 +177,5 @@ function Done({ label, value }) {
       {label.padEnd(10)}
       {value}
     </Text>
-  );
-}
-
-function Ask({ label, children }) {
-  return (
-    <Box flexDirection="column">
-      <Text bold>
-        <Text color="cyan">› </Text>
-        {label}
-      </Text>
-      <Box marginLeft={2} flexDirection="column">
-        {children}
-      </Box>
-    </Box>
   );
 }

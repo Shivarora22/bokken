@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { getMeta, setMeta, transaction } from './db.js';
 
 // Everything that talks to LeetCode: the HTTP client, every query, and problem lookups with their cache.
@@ -21,18 +22,21 @@ export class LeetCodeError extends Error {
 }
 
 /**
- * @param {{ fetch?: typeof fetch, session?: string, csrftoken?: string, timeoutMs?: number }} [options]
+ * `session` is the LEETCODE_SESSION cookie; `setSession` changes it after /login or /logout.
+ *
+ * @param {{ fetch?: typeof fetch, session?: string, timeoutMs?: number }} [options]
  */
-export function createClient({ fetch = globalThis.fetch, session, csrftoken, timeoutMs = 15_000 } = {}) {
+export function createClient({ fetch = globalThis.fetch, session = null, timeoutMs = 15_000 } = {}) {
+  // Run and submit need a CSRF token. LeetCode's check (Django's) only compares the token in
+  // the cookie with the one in the header, so bokken makes one up instead of asking for it.
+  const csrftoken = randomToken();
+
   async function request(path, init = {}) {
     const headers = { 'user-agent': USER_AGENT, referer: `${BASE_URL}/`, origin: BASE_URL, accept: 'application/json', ...init.headers };
-    const cookies = [];
-    if (session) cookies.push(`LEETCODE_SESSION=${session}`);
-    if (csrftoken) {
-      cookies.push(`csrftoken=${csrftoken}`);
+    if (session) {
+      headers.cookie = `LEETCODE_SESSION=${session}; csrftoken=${csrftoken}`;
       headers['x-csrftoken'] = csrftoken;
     }
-    if (cookies.length) headers.cookie = cookies.join('; ');
 
     let response;
     try {
@@ -47,6 +51,12 @@ export function createClient({ fetch = globalThis.fetch, session, csrftoken, tim
     const { status } = response;
     if (status === 429 || response.headers.get('cf-mitigated')) {
       throw new LeetCodeError('blocked', 'LeetCode is limiting requests right now. Try again in a few minutes.', { status });
+    }
+    // A rejected CSRF token comes back as Django's 403 page; LeetCode has sent it with status 499.
+    if (status === 403 || status === 499) {
+      const page = await response.text().catch(() => '');
+      if (/CSRF/.test(page)) throw changed("LeetCode didn't accept bokken's CSRF token", { status });
+      if (status === 499) throw new LeetCodeError('http', `LeetCode answered ${status} for ${path}.`, { status });
     }
     if (status === 401 || (status === 403 && session)) {
       throw new LeetCodeError('auth', 'Your LeetCode login has expired. Log in again with /login.', { status });
@@ -80,7 +90,18 @@ export function createClient({ fetch = globalThis.fetch, session, csrftoken, tim
     },
 
     getJson: (path) => request(path),
+
+    /** `null` logs out. */
+    setSession(next) {
+      session = next ?? null;
+    },
   };
+}
+
+// 32 letters and digits: the shape Django expects of a CSRF token.
+function randomToken() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  return Array.from(randomBytes(32), (byte) => chars[byte % chars.length]).join('');
 }
 
 /** For responses that don't look the way they used to: LeetCode's API is unofficial. */
@@ -132,6 +153,28 @@ export const USER_STATUS = `
   query userStatus {
     userStatus { isSignedIn username }
   }`;
+
+// --- Login -----------------------------------------------------------------
+
+/**
+ * The LEETCODE_SESSION value in whatever was pasted: the value itself, a cookie line, a row
+ * copied from the browser's cookie table, or a "Copy as cURL" / "Copy as PowerShell"
+ * command. Null when there's none.
+ */
+export function parseSession(text) {
+  const trimmed = String(text).trim();
+  const named = trimmed.match(/LEETCODE_SESSION["'\s=:,]+([\w.-]+)/);
+  if (named) return named[1];
+  const bare = trimmed.replace(/^["']|["']$/g, '');
+  return /^[\w.-]+$/.test(bare) ? bare : null;
+}
+
+/** The username the client's session is signed in as, or null when it isn't signed in. */
+export async function signedInUser(client) {
+  const { userStatus } = await client.graphql('userStatus', USER_STATUS);
+  if (!userStatus) throw changed('userStatus came back empty');
+  return userStatus.isSignedIn ? userStatus.username : null;
+}
 
 // --- Problems --------------------------------------------------------------
 

@@ -100,7 +100,7 @@ function merge(defaults, saved) {
 // --- credentials.json ------------------------------------------------------
 
 /**
- * @typedef {{ leetcode?: { session: string, csrftoken: string }, ai?: { apiKey: string } }} Credentials
+ * @typedef {{ leetcode?: { session: string }, ai?: { apiKey: string } }} Credentials
  */
 
 /** @returns {Credentials} */

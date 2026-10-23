@@ -34,6 +34,21 @@ export function ScrollBox({ lines, height, offset }) {
   );
 }
 
+/** A question on a setup screen: `› label`, with its answer (a list or an input) below. */
+export function Ask({ label, children }) {
+  return (
+    <Box flexDirection="column">
+      <Text bold>
+        <Text color="cyan">› </Text>
+        {label}
+      </Text>
+      <Box marginLeft={2} flexDirection="column">
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
 /** `null` means "stick to the end", for chat-like sections. */
 export function clampOffset(offset, length, height) {
   const max = Math.max(0, length - height);
@@ -96,7 +111,7 @@ export function TextInput({ onSubmit, onType, history = [], placeholder = '', in
   usePaste((text) => insert(text.replace(/[\r\n]+/g, ' ')), { isActive });
 
   const { cursor } = state.current;
-  // API keys show as dots.
+  // API keys and sessions show as dots.
   const value = mask ? '•'.repeat(state.current.value.length) : state.current.value;
   return (
     <Text>

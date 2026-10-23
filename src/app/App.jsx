@@ -7,6 +7,7 @@ import { humanDuration } from '../util.js';
 import { AiSetup } from './AiSetup.jsx';
 import { clampOffset, Rule, TextInput } from './components.jsx';
 import { Home, MESSAGE_STYLES } from './Home.jsx';
+import { Login } from './Login.jsx';
 import { markdownLines, textLines } from './markdown-lines.js';
 import { tildePath, todaysProblem } from './practice.js';
 import { ProblemView, problemLayout } from './ProblemView.jsx';
@@ -21,6 +22,8 @@ const HELP = `Commands
   /done             mark it solved and stop the clock
   /new              start a fresh chat with the coach
   /ai               set up the AI coach (any provider)
+  /login            log in to LeetCode, to run and submit
+  /logout           forget the LeetCode login saved on this computer
   /home             back to the home screen
   /setup            change your language, editor or folder
   /quit             quit (or ctrl+c)
@@ -41,7 +44,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
   const { columns, rows } = size ?? windowSize;
 
   const [config, setConfig] = useState(() => ctx.loadConfig());
-  const [screen, setScreen] = useState(firstRun || start?.setup ? 'setup' : start?.aiSetup ? 'aiSetup' : 'home');
+  const [screen, setScreen] = useState(firstRun || start?.setup ? 'setup' : start?.aiSetup ? 'aiSetup' : start?.login ? 'login' : 'home');
   const [history, setHistory] = useState([]);
   // Narrow panes show one section at a time; wide ones show both, and `view` is the one PgUp/PgDn scroll.
   const [view, setView] = useState('problem');
@@ -55,7 +58,8 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
   const [quitting, setQuitting] = useState(false);
   const pendingStart = useRef(start?.daily || start?.ref ? start : null);
   const started = useRef(false);
-  const returnTo = useRef('home');
+  // Where AI setup and login go when they're done: the screens queued here, then home.
+  const upcoming = useRef([]);
   const lastKeyEvent = useRef(0);
   const idleMs = config.stats.idleMinutes * 60_000;
 
@@ -124,6 +128,20 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     exit();
   }
 
+  function showNext() {
+    setScreen(upcoming.current.shift() ?? 'home');
+  }
+
+  /** `/logout`. The session stays valid on LeetCode; logging out there ends it everywhere. */
+  function logout() {
+    const credentials = ctx.loadCredentials();
+    if (!credentials.leetcode) return practice.say("You weren't logged in to LeetCode.");
+    delete credentials.leetcode;
+    ctx.saveCredentials(credentials);
+    ctx.client.setSession(null);
+    practice.say('Logged out. The LeetCode login saved on this computer is deleted. To end it everywhere, log out on leetcode.com too.', 'success');
+  }
+
   function finishQuit(closeEditor) {
     if (closeEditor) practice.practiceRef.current?.session.close();
     leaveProblem();
@@ -151,8 +169,14 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
         setView('coach');
         return coach.newChat();
       case 'ai':
-        returnTo.current = screen;
+        upcoming.current = [screen];
         return setScreen('aiSetup');
+      case 'login':
+        upcoming.current = [screen];
+        return setScreen('login');
+      case 'logout':
+        setView('coach');
+        return logout();
       case 'home':
         return goHome();
       case 'setup':
@@ -269,12 +293,12 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
           ctx={ctx}
           config={config}
           firstRun={firstRun}
-          onDone={(next, { setupAi }) => {
+          onDone={(next, { setupAi, setupLogin }) => {
             setConfig(next);
             setHomeVisits((n) => n + 1);
             practice.say(`Setup saved. Solutions go in ${tildePath(next.workspace)}. Type /today to start.`, 'success');
-            returnTo.current = 'home';
-            setScreen(setupAi ? 'aiSetup' : 'home');
+            upcoming.current = setupAi && setupLogin ? ['login'] : [];
+            setScreen(setupAi ? 'aiSetup' : setupLogin ? 'login' : 'home');
           }}
         />
       </Box>
@@ -287,12 +311,27 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
         <AiSetup
           ctx={ctx}
           config={config}
-          onCancel={() => setScreen(returnTo.current)}
+          onCancel={showNext}
           onDone={(next) => {
             setConfig(next);
             setCredentialsVersion((v) => v + 1);
-            setScreen(returnTo.current);
+            showNext();
             practice.say(`✓ AI ready: ${PROVIDERS[next.ai.provider].name}, ${next.ai.model}. Ask anything, or /hint.`, 'success');
+          }}
+        />
+      </Box>
+    );
+  }
+
+  if (screen === 'login') {
+    return (
+      <Box flexDirection="column" width={columns} height={rows}>
+        <Login
+          ctx={ctx}
+          onCancel={showNext}
+          onDone={(username) => {
+            showNext();
+            practice.say(`✓ Logged in to LeetCode as ${username}.`, 'success');
           }}
         />
       </Box>
