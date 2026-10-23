@@ -13,12 +13,15 @@ import { tildePath, todaysProblem } from './practice.js';
 import { ProblemView, problemLayout } from './ProblemView.jsx';
 import { Setup } from './Setup.jsx';
 import { useCoach } from './useCoach.js';
+import { useJudge } from './useJudge.js';
 import { usePractice } from './usePractice.js';
 
 const HELP = `Commands
   /today            today's problem
   /open <problem>   a problem by number, slug, title or link
   /hint             the next hint: LeetCode's first, then the AI's
+  /run              run your code on the examples, on LeetCode
+  /submit           submit your code to LeetCode; Accepted marks it solved
   /done             mark it solved and stop the clock
   /new              start a fresh chat with the coach
   /ai               set up the AI coach (any provider)
@@ -46,11 +49,11 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
   const [config, setConfig] = useState(() => ctx.loadConfig());
   const [screen, setScreen] = useState(firstRun || start?.setup ? 'setup' : start?.aiSetup ? 'aiSetup' : start?.login ? 'login' : 'home');
   const [history, setHistory] = useState([]);
-  // Narrow panes show one section at a time; wide ones show both, and `view` is the one PgUp/PgDn scroll.
+  // Narrow panes show one section at a time; wide ones show them all, and `view` is the one PgUp/PgDn scroll.
   const [view, setView] = useState('problem');
-  // The coach's messages as you last saw them; anything newer puts a dot on its tab.
-  const [seenCoach, setSeenCoach] = useState({ attemptId: null, coach: null });
-  const [offsets, setOffsets] = useState({ problem: 0, coach: null });
+  // The coach's and notifications' messages as you last saw them; anything newer puts a dot on its tab.
+  const [seen, setSeen] = useState({ attemptId: null, coach: null, notifications: null });
+  const [offsets, setOffsets] = useState({ problem: 0, coach: null, notifications: null });
   const [today, setToday] = useState({ status: 'loading' });
   const [homeVisits, setHomeVisits] = useState(0);
   const [credentialsVersion, setCredentialsVersion] = useState(0);
@@ -65,9 +68,13 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
 
   const practice = usePractice({ ctx, config, setConfig, idleMs });
   const coach = useCoach({ ctx, config, credentialsVersion, practice, showUsage, idleMs });
+  const judge = useJudge({ ctx, practice, idleMs });
   const current = practice.practice;
   // The solution question takes two lines instead of the input's one.
-  const layout = problemLayout(columns, coach.confirming ? rows - 1 : rows);
+  const layout = problemLayout(columns, coach.confirming ? rows - 1 : rows, { notifications: Boolean(current?.notifications.length) });
+  const sections = ['problem', 'coach', ...(layout.notifications ? ['notifications'] : [])];
+  // `view` can name the notifications before there are any (/run on the home screen).
+  const shown = sections.includes(view) ? view : 'problem';
 
   useEffect(() => {
     if (started.current || (screen !== 'home' && screen !== 'problem')) return;
@@ -89,26 +96,36 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     if (!current?.attemptId) return;
     setScreen('problem');
     setView('problem');
-    setOffsets({ problem: 0, coach: null });
-    setSeenCoach({ attemptId: current.attemptId, coach: current.coach });
+    setOffsets({ problem: 0, coach: null, notifications: null });
+    setSeen({ attemptId: current.attemptId, coach: current.coach, notifications: current.notifications });
   }, [current?.attemptId]);
 
-  // The coach section follows its newest message.
+  // The coach and notifications sections follow their newest message.
   useEffect(() => setOffsets((o) => ({ ...o, coach: null })), [current?.coach]);
+  useEffect(() => setOffsets((o) => ({ ...o, notifications: null })), [current?.notifications]);
 
   useEffect(() => {
-    if (current && (layout.wide || view === 'coach')) setSeenCoach({ attemptId: current.attemptId, coach: current.coach });
-  }, [current?.coach, view, layout.wide]);
-  const unread =
-    Boolean(current) && !layout.wide && view === 'problem' && seenCoach.attemptId === current.attemptId && current.coach !== seenCoach.coach;
+    if (!current) return;
+    const showing = (section) => layout.wide || shown === section;
+    setSeen((s) => ({
+      attemptId: current.attemptId,
+      coach: showing('coach') ? current.coach : s.coach,
+      notifications: showing('notifications') ? current.notifications : s.notifications,
+    }));
+  }, [current?.coach, current?.notifications, shown, layout.wide]);
+  const isUnread = (section) =>
+    Boolean(current) && !layout.wide && shown !== section && seen.attemptId === current.attemptId && current[section] !== seen[section];
+  const unread = { coach: isUnread('coach'), notifications: isUnread('notifications') };
 
   function openProblem(target) {
     coach.stop();
+    judge.stop();
     return practice.open(target);
   }
 
   function leaveProblem() {
     coach.stop();
+    judge.stop();
     practice.leave();
   }
 
@@ -151,7 +168,8 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
   function runCommand(text) {
     const [rawName, ...args] = text.slice(1).trim().split(/\s+/);
     const name = rawName.toLowerCase();
-    if (current && !current.done && !['hint', 'done', 'quit', 'home'].includes(name)) {
+    // These record their own events.
+    if (current && !current.done && !['hint', 'run', 'submit', 'done', 'quit', 'home'].includes(name)) {
       recordEvent(ctx.db, current.attemptId, 'command', { idleMs, data: { name } });
     }
     switch (name) {
@@ -162,8 +180,14 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
       case 'hint':
         setView('coach');
         return coach.nextHint();
+      case 'run':
+        setView('notifications');
+        return judge.run();
+      case 'submit':
+        setView('notifications');
+        return judge.submit();
       case 'done':
-        setView('coach');
+        setView('notifications');
         return practice.markDone();
       case 'new':
         setView('coach');
@@ -175,7 +199,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
         upcoming.current = [screen];
         return setScreen('login');
       case 'logout':
-        setView('coach');
+        setView('notifications');
         return logout();
       case 'home':
         return goHome();
@@ -183,12 +207,13 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
         leaveProblem();
         return setScreen('setup');
       case 'help':
-        setView('coach');
+        setView('notifications');
         return practice.say(`${HELP}\nbokken v${version}`);
       case 'quit':
       case 'exit':
         return quit();
       default:
+        setView('notifications');
         return practice.say(`There's no /${rawName} command. Type /help to see them all.`, 'error');
     }
   }
@@ -199,7 +224,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     setHistory((h) => (h.at(-1) === text ? h : [...h, text].slice(-100)));
     if (practice.loading) return practice.say('Still working on the last command…');
     if (text.startsWith('/')) return runCommand(text);
-    if (coach.busy) return practice.say('Still answering. Press Esc to stop it.');
+    if (coach.busy) return practice.coachSay('Still answering. Press Esc to stop it.');
     setView('coach');
     coach.ask(text);
   }
@@ -213,7 +238,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
 
   function scroll(section, direction) {
     const { height } = layout[section];
-    const length = (section === 'problem' ? problemLines : coachLines).length;
+    const length = { problem: problemLines, coach: coachLines, notifications: notificationLines }[section].length;
     setOffsets((o) => {
       const next = clampOffset(clampOffset(o[section], length, height) + direction * Math.max(1, height - 2), length, height);
       const atEnd = next >= length - height;
@@ -251,12 +276,14 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
       }
       if (key.escape && coach.busy) {
         coach.stop();
+      } else if (key.escape && judge.busy) {
+        judge.stop();
       } else if (key.ctrl && input === 'e') {
         practice.openEditor();
       } else if (screen === 'problem' && key.tab) {
-        setView((v) => (v === 'problem' ? 'coach' : 'problem'));
+        setView(sections[(sections.indexOf(shown) + 1) % sections.length]);
       } else if (screen === 'problem' && (key.pageUp || key.pageDown)) {
-        scroll(view, key.pageUp ? -1 : 1);
+        scroll(shown, key.pageUp ? -1 : 1);
       }
     },
     { isActive: screen === 'home' || screen === 'problem' },
@@ -271,6 +298,10 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     if (!current.coach.length) return textLines(COACH_EMPTY, layout.coach.width, MESSAGE_STYLES.pending);
     return renderMessages(current.coach, layout.coach.width);
   }, [current?.coach, layout.coach.width]);
+  const notificationLines = useMemo(
+    () => (layout.notifications ? renderMessages(current.notifications, layout.notifications.width) : []),
+    [current?.notifications, layout.notifications?.width],
+  );
   const home = useMemo(() => {
     if (screen === 'setup' || current) return null;
     const latest = latestActiveAttempt(ctx.db);
@@ -341,8 +372,9 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
   const inProblem = Boolean(current);
   let footer = '/today · /open 1 · /ai · /setup · /help · ctrl+c quit';
   if (coach.busy) footer = 'Esc stops the answer';
-  else if (inProblem && layout.wide) footer = 'ctrl+e editor · tab scroll · /hint · /done · /help';
-  else if (inProblem) footer = `tab ${view === 'problem' ? 'coach' : 'problem'} · ctrl+e editor · /hint · /done`;
+  else if (judge.busy) footer = 'Esc stops waiting for LeetCode';
+  else if (inProblem && layout.wide) footer = 'ctrl+e editor · tab scroll · /hint · /run · /submit · /done · /help';
+  else if (inProblem) footer = `tab ${sections[(sections.indexOf(shown) + 1) % sections.length]} · ctrl+e editor · /hint · /run · /submit`;
 
   return (
     <Box flexDirection="column" width={columns} height={rows}>
@@ -352,18 +384,19 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
             practice={current}
             columns={columns}
             layout={layout}
-            view={view}
+            view={shown}
             unread={unread}
             problemLines={problemLines}
             coachLines={coachLines}
+            notificationLines={notificationLines}
             offsets={offsets}
             getTimes={(now) => attemptTimes(ctx.db, current.attemptId, { now: new Date(now), idleMs })}
           />
         ) : (
-          <Home version={version} width={columns} height={rows - 3} {...home} today={today} messages={practice.messages} />
+          <Home version={version} width={columns} height={rows - 3} {...home} today={today} messages={practice.messages} workspace={config.workspace} />
         )}
       </Box>
-      <Rule width={columns} junction={inProblem && layout.wide ? { at: layout.dividerAt, char: '┴' } : undefined} />
+      <Rule width={columns} junctions={inProblem ? layout.dividers.map((at) => ({ at, char: '┴' })) : []} />
       <Box paddingX={1} flexShrink={0}>
         {quitting && current ? (
           <Text color="yellow">
@@ -412,7 +445,7 @@ function renderMessages(messages, width) {
   const lines = [];
   for (const message of messages) {
     if (lines.length) lines.push('');
-    if (message.kind === 'hint' || message.kind === 'ai') lines.push(...markdownLines(message.text, width));
+    if (message.kind === 'hint' || message.kind === 'ai' || message.kind === 'result') lines.push(...markdownLines(message.text, width));
     else lines.push(...textLines(message.kind === 'you' ? `> ${message.text}` : message.text, width, MESSAGE_STYLES[message.kind]));
   }
   return lines;

@@ -16,7 +16,7 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
   coachRef.current = coach;
   const abortRef = useRef(null);
   const solutionQuestion = useRef(null);
-  const { practiceRef, say, updateMessage, updatePractice, ifActive } = practice;
+  const { practiceRef, coachSay: say, updateMessage, updatePractice, ifActive } = practice;
 
   useEffect(() => {
     let cancelled = false;

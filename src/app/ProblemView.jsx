@@ -10,25 +10,40 @@ export const WIDE_COLUMNS = 100;
 
 /**
  * Wide: the problem on the left, the coach on the right. Narrow (an editor split beside
- * bokken): one of them at a time, full height, with tabs.
+ * bokken): one section at a time, full height, with tabs. `notifications` (results of /run
+ * and /submit) adds a third column, or a third tab; there's none until you run something.
  */
-export function problemLayout(columns, rows) {
+export function problemLayout(columns, rows, { notifications = false } = {}) {
   const available = rows - APP_ROWS;
   if (columns >= WIDE_COLUMNS) {
-    // The problem takes the left 58%; a vertical line at `dividerAt` separates the coach.
-    const left = Math.floor(columns * 0.58);
     // Header, a rule, and each section's title.
     const height = Math.max(3, available - 3);
-    return { wide: true, dividerAt: left, problem: { width: left - 2, height }, coach: { width: columns - left - 3, height } };
+    if (notifications) {
+      // The problem takes the left 40%; the coach and the notifications share the rest.
+      const first = Math.floor(columns * 0.4);
+      const second = first + Math.floor((columns - first) / 2);
+      return {
+        wide: true,
+        dividers: [first, second],
+        problem: { width: first - 2, height },
+        coach: { width: second - first - 3, height },
+        notifications: { width: columns - second - 3, height },
+      };
+    }
+    // The problem takes the left 58%; a vertical line at the divider separates the coach.
+    const left = Math.floor(columns * 0.58);
+    return { wide: true, dividers: [left], problem: { width: left - 2, height }, coach: { width: columns - left - 3, height }, notifications: null };
   }
   // Title, timer, tabs and a rule.
   const height = Math.max(3, available - 4);
-  return { wide: false, problem: { width: columns - 2, height }, coach: { width: columns - 2, height } };
+  const section = { width: columns - 2, height };
+  return { wide: false, dividers: [], problem: section, coach: section, notifications: notifications ? section : null };
 }
 
-export function ProblemView({ practice, columns, layout, view, unread, problemLines, coachLines, offsets, getTimes }) {
+/** `unread` is `{ coach, notifications }`: a dot on a tab with something new you haven't seen. */
+export function ProblemView({ practice, columns, layout, view, unread, problemLines, coachLines, notificationLines, offsets, getTimes }) {
   const { problem } = practice;
-  const lines = { problem: problemLines, coach: coachLines };
+  const lines = { problem: problemLines, coach: coachLines, notifications: notificationLines };
   const title = (
     <Text wrap="truncate-end">
       <Text bold>
@@ -54,25 +69,14 @@ export function ProblemView({ practice, columns, layout, view, unread, problemLi
             {timer}
           </Box>
         </Box>
-        <Rule width={columns} junction={{ at: layout.dividerAt, char: '┬' }} />
+        <Rule width={columns} junctions={layout.dividers.map((at) => ({ at, char: '┬' }))} />
         <Box flexDirection="row">
           <Box flexDirection="column" width={layout.problem.width + 2} paddingX={1}>
             <Rule width={layout.problem.width} title="Problem" focused={view === 'problem'} />
             <ScrollBox lines={lines.problem} height={layout.problem.height} offset={offsets.problem} />
           </Box>
-          <Box
-            flexDirection="column"
-            width={layout.coach.width + 3}
-            paddingX={1}
-            borderStyle="single"
-            borderTop={false}
-            borderRight={false}
-            borderBottom={false}
-            borderDimColor
-          >
-            <Rule width={layout.coach.width} title="Coach" focused={view === 'coach'} />
-            <ScrollBox lines={lines.coach} height={layout.coach.height} offset={offsets.coach} />
-          </Box>
+          <Column title="Coach" section="coach" layout={layout} view={view} lines={lines} offsets={offsets} />
+          {layout.notifications && <Column title="Notifications" section="notifications" layout={layout} view={view} lines={lines} offsets={offsets} />}
         </Box>
       </Box>
     );
@@ -86,12 +90,30 @@ export function ProblemView({ practice, columns, layout, view, unread, problemLi
         <Tab label="Problem" active={view === 'problem'} />
         <Text>   </Text>
         <Tab label="Coach" active={view === 'coach'} />
-        {unread && <Text color="yellow"> •</Text>}
+        {unread.coach && <Text color="yellow"> •</Text>}
+        {layout.notifications && (
+          <>
+            <Text>   </Text>
+            <Tab label="Notifications" active={view === 'notifications'} />
+            {unread.notifications && <Text color="yellow"> •</Text>}
+          </>
+        )}
       </Box>
       <Rule width={columns} />
       <Box paddingX={1}>
         <ScrollBox lines={lines[view]} height={layout[view].height} offset={offsets[view]} />
       </Box>
+    </Box>
+  );
+}
+
+// A column to the right of the problem, with a line on its left.
+function Column({ title, section, layout, view, lines, offsets }) {
+  const { width, height } = layout[section];
+  return (
+    <Box flexDirection="column" width={width + 3} paddingX={1} borderStyle="single" borderTop={false} borderRight={false} borderBottom={false} borderDimColor>
+      <Rule width={width} title={title} focused={view === section} />
+      <ScrollBox lines={lines[section]} height={height} offset={offsets[section]} />
     </Box>
   );
 }

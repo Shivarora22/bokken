@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import { humanDuration } from '../util.js';
 import { Rule, ScrollBox } from './components.jsx';
 import { textLines } from './markdown-lines.js';
+import { tildePath } from './practice.js';
 
 export const MESSAGE_STYLES = { error: chalk.red, success: chalk.green, you: chalk.dim, pending: chalk.dim, info: (s) => s };
 
@@ -11,8 +12,15 @@ export function Difficulty({ value }) {
   return <Text color={color}>{value}</Text>;
 }
 
-export function Home({ version, width, height, summary, continueItem, today, messages }) {
+export function Home({ version, width, height, summary, continueItem, today, messages, workspace }) {
   const { weekMs, streakDays } = summary;
+  const folderLines = workspace
+    ? textLines(
+        `Your solutions are saved in ${tildePath(workspace)}, with each problem's problem.md beside your code, so they're easy to push to GitHub. You can change the folder anytime with /setup.`,
+        width - 4,
+        chalk.dim,
+      )
+    : [];
   const stats = [
     streakDays > 0 ? `🔥 ${streakDays}-day streak` : null,
     weekMs >= 60_000 ? `${humanDuration(weekMs)} this week` : 'no practice yet this week',
@@ -49,10 +57,17 @@ export function Home({ version, width, height, summary, continueItem, today, mes
             <Text dimColor>{today.status === 'loading' ? 'loading…' : today.message}</Text>
           )}
         </Row>
+        {folderLines.length > 0 && (
+          <Box flexDirection="column" marginTop={1}>
+            {folderLines.map((line, i) => (
+              <Text key={i}>{line}</Text>
+            ))}
+          </Box>
+        )}
       </Box>
       <Rule width={width} />
       <Box paddingX={2} paddingTop={1} flexGrow={1}>
-        <ScrollBox lines={messageLines} height={Math.max(1, height - 9)} offset={null} />
+        <ScrollBox lines={messageLines} height={Math.max(1, height - 9 - (folderLines.length ? folderLines.length + 1 : 0))} offset={null} />
       </Box>
     </Box>
   );

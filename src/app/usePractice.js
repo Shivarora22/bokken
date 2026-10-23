@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { useApp } from 'ink';
 import { useEffect, useRef, useState } from 'react';
 import { LEVEL_NAMES } from '../ai/prompts.js';
@@ -6,13 +7,14 @@ import { extractCode, solutionFile } from '../languages.js';
 import { htmlToMarkdown } from '../markdown.js';
 import { aiHints, attemptTimes, finishAttempt, recordEvent, recordHint } from '../tracking.js';
 import { humanDuration, watchSaves } from '../util.js';
-import { loadPractice } from './practice.js';
+import { loadPractice, tildePath } from './practice.js';
 
 export const NEED_PROBLEM = 'Open a problem first: /today, or /open 1.';
 
 /**
  * The problem being practiced: its files, clock, editor, official hints and /done. Also the
- * messages: the Coach section's while a problem is open, the home screen's otherwise.
+ * messages: the Coach section's and the Notifications section's while a problem is open,
+ * the home screen's otherwise.
  */
 export function usePractice({ ctx, config, setConfig, idleMs }) {
   const { suspendTerminal } = useApp();
@@ -34,17 +36,30 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
     });
   }, [practice?.file]);
 
-  /** Returns the message's id, for updating it later (a streaming answer). */
+  /**
+   * Everything that isn't the coach (results, errors, what a command did): the Notifications
+   * section while a problem is open, the home screen otherwise. Returns the message's id,
+   * for updating it later.
+   */
   function say(text, kind = 'info') {
+    return post('notifications', text, kind);
+  }
+
+  /** Hints, your questions and the AI's answers: the Coach section. */
+  function coachSay(text, kind = 'info') {
+    return post('coach', text, kind);
+  }
+
+  function post(section, text, kind) {
     const message = { id: ++nextId.current, kind, text };
-    if (practiceRef.current) setPractice((p) => p && { ...p, coach: [...p.coach, message] });
+    if (practiceRef.current) setPractice((p) => p && { ...p, [section]: [...p[section], message] });
     else setMessages((m) => [...m, message].slice(-30));
     return message.id;
   }
 
   function updateMessage(id, changes) {
     const update = (list) => list.map((m) => (m.id === id ? { ...m, ...changes } : m));
-    setPractice((p) => p && { ...p, coach: update(p.coach) });
+    setPractice((p) => p && { ...p, coach: update(p.coach), notifications: update(p.notifications) });
     setMessages(update);
   }
 
@@ -89,6 +104,9 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
         aiHints: earlierAiHints,
         solutionShown: false,
         chat: [],
+        notifications: [],
+        // The latest /run or /submit, summed up for the coach.
+        lastResult: null,
         done: false,
         lastSaveAt: null,
         session,
@@ -145,7 +163,7 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
     const n = current.hintsShown + 1;
     ifActive((attemptId) => recordHint(ctx.db, attemptId, n, { idleMs }));
     updatePractice((p) => ({ ...p, hintsShown: n }));
-    say(officialHintText(hints, n), 'hint');
+    coachSay(officialHintText(hints, n), 'hint');
     return true;
   }
 
@@ -154,10 +172,19 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
     if (!current) return say(NEED_PROBLEM);
     if (current.done) return say('Already marked solved. /today or /open for the next one.');
     finishAttempt(ctx.db, current.attemptId, { idleMs });
+    say(afterSolved(), 'success');
+  }
+
+  /** Once /done or an Accepted submission has solved the attempt: the clock stops. Returns what to tell you. */
+  function afterSolved() {
+    const current = practiceRef.current;
     const { active_sec: active, wall_sec: wall } = ctx.db.prepare('SELECT active_sec, wall_sec FROM attempts WHERE id = ?').get(current.attemptId);
     ctx.current.attemptId = null;
     updatePractice((p) => ({ ...p, done: true }));
-    say(`✓ Solved in ${humanDuration(active * 1000)} active (${humanDuration(wall * 1000)} total). Next: /today or /open.`, 'success');
+    return (
+      `✓ Solved in ${humanDuration(active * 1000)} active (${humanDuration(wall * 1000)} total). ` +
+      `Nicely done! Your solution is saved in ${tildePath(current.dir)}${path.sep}. Next: /today or /open.`
+    );
   }
 
   /**
@@ -174,7 +201,7 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
       code,
       wroteCode: Boolean(squash(code)) && squash(code) !== squash(starter),
       lang: p.lang,
-      lastResult: null,
+      lastResult: p.lastResult,
       earlierHints: [
         ...p.problem.hints.slice(0, p.hintsShown).map((hint, i) => ({ label: `Official hint ${i + 1}`, text: htmlToMarkdown(hint) })),
         ...p.aiHints.map((hint) => ({ label: `AI hint, level ${hint.level} (${LEVEL_NAMES[hint.level]})`, text: hint.text })),
@@ -190,6 +217,7 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
     asking,
     cancelAsking: () => setAsking(false),
     say,
+    coachSay,
     updateMessage,
     updatePractice,
     ifActive,
@@ -199,6 +227,7 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
     answerWindowsTerminal,
     showOfficialHint,
     markDone,
+    afterSolved,
     coachContext,
   };
 }

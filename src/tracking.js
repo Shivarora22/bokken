@@ -101,11 +101,45 @@ export function aiHints(db, attemptId) {
 
 /** `/done`: marks the attempt solved and stops its clock. */
 export function finishAttempt(db, attemptId, { at = new Date(), idleMs = DEFAULT_IDLE_MS } = {}) {
+  transaction(db, () => solve(db, attemptId, at, idleMs));
+}
+
+/** `/run`: counted on the attempt, and activity for its clock. */
+export function recordRun(db, attemptId, { passed, at = new Date(), idleMs = DEFAULT_IDLE_MS } = {}) {
   transaction(db, () => {
-    insertEvent(db, attemptId, 'done', at);
+    insertEvent(db, attemptId, 'run', at, { passed });
+    db.prepare('UPDATE attempts SET runs = runs + 1 WHERE id = ?').run(attemptId);
     updateTimes(db, attemptId, at, idleMs);
-    db.prepare("UPDATE attempts SET outcome = 'solved', ended_at = ? WHERE id = ?").run(at.toISOString(), attemptId);
   });
+}
+
+/**
+ * `/submit`: the submission is saved (never the code), and counted on the attempt while
+ * it's active. The first Accepted solves the attempt, as /done does; a submission after
+ * that is only saved. Returns whether this one solved it.
+ */
+export function recordSubmission(db, attemptId, { slug, lang, status, runtime, memory, remoteId, at = new Date(), idleMs = DEFAULT_IDLE_MS }) {
+  return transaction(db, () => {
+    const saved = db
+      .prepare('INSERT OR IGNORE INTO submissions (id, attempt_id, slug, lang, status, runtime, memory, remote_id, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(randomUUID(), attemptId, slug, lang, status, runtime, memory, remoteId, at.toISOString());
+    // Already saved (the same LeetCode submission twice): it's counted once.
+    if (!saved.changes) return false;
+    if (db.prepare('SELECT outcome FROM attempts WHERE id = ?').get(attemptId)?.outcome !== 'active') return false;
+
+    const accepted = status === 'Accepted';
+    insertEvent(db, attemptId, 'submit', at, { status });
+    db.prepare('UPDATE attempts SET submissions = submissions + 1, wrong_submissions = wrong_submissions + ? WHERE id = ?').run(accepted ? 0 : 1, attemptId);
+    updateTimes(db, attemptId, at, idleMs);
+    if (accepted) solve(db, attemptId, at, idleMs);
+    return accepted;
+  });
+}
+
+function solve(db, attemptId, at, idleMs) {
+  insertEvent(db, attemptId, 'done', at);
+  updateTimes(db, attemptId, at, idleMs);
+  db.prepare("UPDATE attempts SET outcome = 'solved', ended_at = ? WHERE id = ?").run(at.toISOString(), attemptId);
 }
 
 /** For the live timer: active time so far, and whether you've been idle past the limit. */

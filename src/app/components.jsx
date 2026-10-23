@@ -1,11 +1,12 @@
 import { Box, Text, useInput, usePaste } from 'ink';
 import { useReducer, useRef, useState } from 'react';
 
-/** A horizontal line. `junction` ({ at, char }) joins it to a vertical one, like ┬ or ┴. */
-export function Rule({ width, title, focused = false, junction }) {
+/** A horizontal line. Each of `junctions` ({ at, char }) joins it to a vertical one, like ┬ or ┴. */
+export function Rule({ width, title, focused = false, junctions = [] }) {
   if (!title) {
-    const line = '─'.repeat(Math.max(0, width));
-    return <Text dimColor>{junction ? line.slice(0, junction.at) + junction.char + line.slice(junction.at + 1) : line}</Text>;
+    const line = [...'─'.repeat(Math.max(0, width))];
+    for (const { at, char } of junctions) if (at < line.length) line[at] = char;
+    return <Text dimColor>{line.join('')}</Text>;
   }
   const label = ` ${title} `;
   return (

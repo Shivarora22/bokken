@@ -91,10 +91,20 @@ export function createClient({ fetch = globalThis.fetch, session = null, timeout
 
     getJson: (path) => request(path),
 
+    /** A POST of JSON, as a browser sends Run and Submit: from the problem's page. */
+    postJson: (path, body, { referer } = {}) =>
+      request(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(referer ? { referer } : {}) },
+        body: JSON.stringify(body),
+      }),
+
     /** `null` logs out. */
     setSession(next) {
       session = next ?? null;
     },
+
+    hasSession: () => Boolean(session),
   };
 }
 
@@ -174,6 +184,63 @@ export async function signedInUser(client) {
   const { userStatus } = await client.graphql('userStatus', USER_STATUS);
   if (!userStatus) throw changed('userStatus came back empty');
   return userStatus.isSignedIn ? userStatus.username : null;
+}
+
+// --- Run and submit --------------------------------------------------------
+
+// Both need a login. They're sent the way the problem's page sends them, and their results
+// come from the same `check` endpoint (recorded in test/fixtures/run-* and submit-*).
+
+/** LeetCode's "Run": your code on the problem's examples. Returns the id `waitForResult` takes. */
+export async function startRun(client, { problem, lang, code }) {
+  const body = await client.postJson(
+    `/problems/${problem.slug}/interpret_solution/`,
+    { lang, question_id: String(problem.questionId), typed_code: code, data_input: problem.exampleTestcases },
+    { referer: problem.url },
+  );
+  if (!body?.interpret_id) throw changed('Run came back without an interpret_id');
+  return body.interpret_id;
+}
+
+/** LeetCode's "Submit": your code judged on every test. Returns the id `waitForResult` takes. */
+export async function startSubmit(client, { problem, lang, code }) {
+  const body = await client.postJson(
+    `/problems/${problem.slug}/submit/`,
+    { lang, question_id: String(problem.questionId), typed_code: code },
+    { referer: problem.url },
+  );
+  if (!body?.submission_id) throw changed('Submit came back without a submission_id');
+  return String(body.submission_id);
+}
+
+/**
+ * Asks for a Run's or a Submit's result until it's ready (PENDING, STARTED, then SUCCESS).
+ * `signal` stops waiting; LeetCode still finishes the job.
+ */
+export async function waitForResult(client, id, { signal, intervalMs = 1000, timeoutMs = 60_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    await sleep(intervalMs, signal);
+    const result = await client.getJson(`/submissions/detail/${id}/check/`);
+    if (result?.state === 'SUCCESS') return result;
+    if (result?.state !== 'PENDING' && result?.state !== 'STARTED') throw changed(`a result came back as "${result?.state}"`);
+    if (Date.now() > deadline) throw new LeetCodeError('timeout', `LeetCode didn't finish within ${timeoutMs / 1000} seconds. Try again in a moment.`);
+  }
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
 }
 
 // --- Problems --------------------------------------------------------------
