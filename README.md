@@ -29,13 +29,13 @@ When something needs a missing piece, bokken says so and tells you the command t
 
 ## Install
 
-bokken isn't on npm yet, so install it straight from GitHub. You need [Node.js](https://nodejs.org) 22.13 or newer, and [git](https://git-scm.com).
+You need [Node.js](https://nodejs.org) 22.13 or newer.
 
 ```sh
-npm install -g github:Shivarora22/bokken
+npm install -g bokken
 ```
 
-npm downloads the code and builds it as part of the install. Run the same command again to update.
+To update, run `npm install -g bokken@latest`. To remove it, run `npm uninstall -g bokken`; your settings stay in `~/.bokken` and your solutions in their folder.
 
 **To work on bokken itself:**
 
@@ -74,6 +74,8 @@ bokken doesn't draw the split itself. It asks your terminal to split the window:
 
 Switch between the panes the way you normally do (tmux keys, Alt+arrows in Windows Terminal).
 
+**Each problem gets its own editor.** Leaving a problem (`/home`, `/open` another one, `/stats`, `/browse`, `/setup`) closes the editor bokken opened for it, and the next problem opens a new one. Quitting with the editor open asks first. Save before you leave: vim and nvim keep unsaved changes in their swap file, but on Windows they're lost.
+
 **Which editor:** the one you chose in setup, then `$VISUAL` or `$EDITOR`, then the first of nvim, vim, helix, micro, nano, `edit` (Windows) and vi that's installed. Only terminal editors are supported for now; GUI editors like VS Code are skipped. If none is installed, bokken offers to install micro for you (`ctrl+s` saves, `ctrl+q` quits), and only runs the install if you say yes.
 
 ## Commands
@@ -100,7 +102,7 @@ Switch between the panes the way you normally do (tmux keys, Alt+arrows in Windo
 
 Anything you type that isn't a command goes to the coach.
 
-**Keys:** `ctrl+e` opens your editor · `tab` switches between the problem and the coach · `PgUp`/`PgDn` scroll · `Esc` stops an answer · `↑`/`↓` earlier commands · `ctrl+c` quits.
+**Keys:** `ctrl+e` opens your editor · `tab` switches between the problem and the coach · `PgUp`/`PgDn` scroll · `Esc` stops an answer · `↑`/`↓` earlier commands · `ctrl+c` quits (with your editor open, it asks first).
 
 ### From the shell
 

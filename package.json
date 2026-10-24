@@ -1,7 +1,6 @@
 {
   "name": "bokken",
   "version": "0.2.0",
-  "private": true,
   "description": "Practice coding problems in your terminal, with a live timer, hints and an optional AI coach next to your own editor",
   "keywords": [
     "leetcode",
@@ -13,6 +12,14 @@
   ],
   "license": "MIT",
   "author": "Shiv Arora",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shivarora22/bokken.git"
+  },
+  "homepage": "https://github.com/Shivarora22/bokken#readme",
+  "bugs": {
+    "url": "https://github.com/Shivarora22/bokken/issues"
+  },
   "type": "module",
   "bin": {
     "bokken": "dist/cli.js"
