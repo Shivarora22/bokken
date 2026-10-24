@@ -181,11 +181,11 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
   /** Once /done or an Accepted submission has solved the attempt: the clock stops. Returns what to tell you. */
   function afterSolved() {
     const current = practiceRef.current;
-    const { active_sec: active, wall_sec: wall } = ctx.db.prepare('SELECT active_sec, wall_sec FROM attempts WHERE id = ?').get(current.attemptId);
+    const { active_sec: active } = ctx.db.prepare('SELECT active_sec FROM attempts WHERE id = ?').get(current.attemptId);
     ctx.current.attemptId = null;
     updatePractice((p) => ({ ...p, done: true }));
     return (
-      `✓ Solved in ${humanDuration(active * 1000)} active (${humanDuration(wall * 1000)} total). ` +
+      `✓ Solved in ${humanDuration(active * 1000)}. ` +
       `Nicely done! Your solution is saved in ${tildePath(current.dir)}${path.sep}. Next: /today or /open.`
     );
   }
