@@ -32,10 +32,10 @@ When something needs a missing piece, bokken says so and tells you the command t
 You need [Node.js](https://nodejs.org) 22.13 or newer.
 
 ```sh
-npm install -g bokken
+npm install -g @shiotagi/bokken
 ```
 
-To update, run `npm install -g bokken@latest`. To remove it, run `npm uninstall -g bokken`; your settings stay in `~/.bokken` and your solutions in their folder.
+The command is `bokken`. To update, run `npm install -g @shiotagi/bokken@latest`. To remove it, run `npm uninstall -g @shiotagi/bokken`; your settings stay in `~/.bokken` and your solutions in their folder.
 
 **To work on bokken itself:**
 
