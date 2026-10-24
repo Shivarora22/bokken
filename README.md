@@ -6,6 +6,11 @@
 ██████╔╝╚██████╔╝██║  ██╗██║  ██╗███████╗██║ ╚████║
 ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝
 ```
+
+[![npm](https://img.shields.io/npm/v/@shiotagi/bokken)](https://www.npmjs.com/package/@shiotagi/bokken)
+[![license](https://img.shields.io/npm/l/@shiotagi/bokken)](LICENSE)
+[![node](https://img.shields.io/node/v/@shiotagi/bokken)](https://nodejs.org)
+
 Practice coding problems in your terminal, with a live timer, hints and an optional AI coach next to your own editor.
 
 Run `bokken` and you get a full-screen practice app: the problem, a timer that only counts the time you're actually working, and a coach. Your own terminal editor opens in a split right next to it. bokken also keeps track of how you practice: time per problem, by topic and difficulty, where you struggle, and what to work on next.
@@ -183,6 +188,10 @@ class Solution:
 ├── credentials.json        # LeetCode login and AI key, if saved
 └── bokken.db               # problem cache, your attempts and stats
 ```
+
+## Contributing
+
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, where things are, and the ground rules.
 
 ## License
 
