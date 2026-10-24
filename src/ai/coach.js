@@ -14,7 +14,7 @@ import {
 
 // --- Coach -----------------------------------------------------------------
 
-const MAX_TOKENS = { hint: 4000, classify: 16, explain: 6000, other: 2000, solution: 16000 };
+const MAX_TOKENS = { hint: 4000, classify: 2048, explain: 6000, other: 2000, solution: 16000 };
 
 /**
  * The only part of bokken that talks to a model. It builds the prompts, applies the rules

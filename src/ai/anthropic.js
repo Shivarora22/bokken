@@ -3,6 +3,15 @@ import { toAiError } from './providers.js';
 
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
+// Settings a model can reject with a 400 that names them: adaptive thinking (Opus 4.5 and
+// older), effort (Sonnet 4.5, Haiku 4.5) and the server-side fallback for declined requests
+// (older models, proxies). Each is dropped on its own, for the rest of the session.
+const OPTIONAL = [
+  { name: 'thinking', rejected: /thinking/i },
+  { name: 'effort', rejected: /effort|output_config/i },
+  { name: 'fallback', rejected: /fallback|beta/i },
+];
+
 /** @param {ReturnType<typeof import('./providers.js').resolveAi>} settings */
 export function createAnthropicAdapter(settings, { fetch, maxRetries = 1 } = {}) {
   const client = new Anthropic({
@@ -12,9 +21,8 @@ export function createAnthropicAdapter(settings, { fetch, maxRetries = 1 } = {})
     maxRetries,
     timeout: 120_000,
   });
-  // Adaptive thinking, effort and server-side fallback. Older models reject some of
-  // these; then they're dropped for the rest of the session.
-  let useExtras = true;
+  // Haiku has no server-side fallback: a declined request stays declined.
+  const supports = { thinking: true, effort: true, fallback: !/haiku/i.test(settings.model) };
 
   async function run(body, { onText, signal }) {
     const stream = body.betas ? client.beta.messages.stream(body, { signal }) : client.messages.stream(body, { signal });
@@ -36,27 +44,26 @@ export function createAnthropicAdapter(settings, { fetch, maxRetries = 1 } = {})
         system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
         messages: messages.map(toAnthropicMessage),
       };
-      if (useExtras) {
+      for (;;) {
+        // Thinking can't be turned off on the 5.5 models (`disabled` is a 400), so `think:
+        // false` leaves it out: older models then don't think, and the 5.5 ones think as
+        // little as the low effort allows.
+        const sent = { thinking: supports.thinking && think, effort: supports.effort, fallback: supports.fallback };
         try {
           return await run(
             {
               ...body,
-              thinking: think ? { type: 'adaptive', display: 'omitted' } : { type: 'disabled' },
-              output_config: { effort: effort ?? settings.effort },
-              fallbacks: 'default',
-              betas: [FALLBACK_BETA],
+              ...(sent.thinking ? { thinking: { type: 'adaptive', display: 'omitted' } } : {}),
+              ...(sent.effort ? { output_config: { effort: effort ?? settings.effort } } : {}),
+              ...(sent.fallback ? { fallbacks: 'default', betas: [FALLBACK_BETA] } : {}),
             },
             { onText, signal },
           );
         } catch (error) {
-          if (error?.status !== 400 || !/thinking|effort|output_config|fallback|beta/i.test(error.message)) throw toAiError(error, settings);
-          useExtras = false;
+          const setting = error?.status === 400 && OPTIONAL.find(({ name, rejected }) => sent[name] && rejected.test(error.message));
+          if (!setting) throw toAiError(error, settings);
+          supports[setting.name] = false;
         }
-      }
-      try {
-        return await run(body, { onText, signal });
-      } catch (error) {
-        throw toAiError(error, settings);
       }
     },
 
