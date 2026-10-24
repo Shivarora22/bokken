@@ -115,7 +115,8 @@ export function runInstall(command) {
  * @param {string[]} commandLine the editor command, its args, and the file
  */
 export async function runEditorWithLock(lockPath, [command, ...args]) {
-  writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootedAt: bootTime() }));
+  const lock = { pid: process.pid, bootedAt: bootTime() };
+  writeFileSync(lockPath, JSON.stringify(lock));
   const removeLock = () => {
     if (readLock(lockPath)?.pid === process.pid) unlinkSync(lockPath);
   };
@@ -131,19 +132,28 @@ export async function runEditorWithLock(lockPath, [command, ...args]) {
   process.on('SIGTERM', () => editorProcess?.kill('SIGHUP'));
 
   const file = args.pop();
-  return runEditor({ name: editorName(command), command, args }, file, { onStart: (child) => (editorProcess = child) });
+  return runEditor({ name: editorName(command), command, args }, file, {
+    onStart: (child) => {
+      editorProcess = child;
+      // On Windows, closeEditor ends the editor by this ID.
+      if (child.pid) writeFileSync(lockPath, JSON.stringify({ ...lock, editorPid: child.pid }));
+    },
+  });
 }
 
 /**
  * Closes the editor `runEditorWithLock` started, and its pane with it. Returns false when it
- * wasn't open. Windows has no signals, so there the wrapper and editor are ended outright.
+ * wasn't open. Windows has no signals, so there the editor is ended outright: only the
+ * editor, so the wrapper still exits cleanly and Windows Terminal closes the pane. A pane
+ * whose process is ended stays open on "process exited with code 1". A lock from an older
+ * bokken has no editor ID, and then the wrapper is ended.
  */
-export function closeEditor(lockPath, { platform = process.platform } = {}) {
-  const pid = readLock(lockPath)?.pid;
-  if (!pid || !isEditorOpen(lockPath)) return false;
+export function closeEditor(lockPath, { platform = process.platform, run = spawnSync } = {}) {
+  const lock = readLock(lockPath);
+  if (!lock?.pid || !isEditorOpen(lockPath)) return false;
   try {
-    if (platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
-    else process.kill(pid, 'SIGTERM');
+    if (platform === 'win32') run('taskkill', ['/PID', String(lock.editorPid ?? lock.pid), '/T', '/F'], { stdio: 'ignore' });
+    else process.kill(lock.pid, 'SIGTERM');
     return true;
   } catch {
     return false;
