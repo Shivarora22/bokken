@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { focusSplit, openSplit, SPLIT_NAMES } from './split.js';
 import { formatDuration, which } from './util.js';
@@ -114,9 +115,9 @@ export function runInstall(command) {
  * @param {string[]} commandLine the editor command, its args, and the file
  */
 export async function runEditorWithLock(lockPath, [command, ...args]) {
-  writeFileSync(lockPath, JSON.stringify({ pid: process.pid }));
+  writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootedAt: bootTime() }));
   const removeLock = () => {
-    if (readLockPid(lockPath) === process.pid) unlinkSync(lockPath);
+    if (readLock(lockPath)?.pid === process.pid) unlinkSync(lockPath);
   };
   process.on('exit', removeLock);
   // ctrl+c belongs to the editor; this wrapper just waits for it to quit.
@@ -138,7 +139,7 @@ export async function runEditorWithLock(lockPath, [command, ...args]) {
  * wasn't open. Windows has no signals, so there the wrapper and editor are ended outright.
  */
 export function closeEditor(lockPath, { platform = process.platform } = {}) {
-  const pid = readLockPid(lockPath);
+  const pid = readLock(lockPath)?.pid;
   if (!pid || !isEditorOpen(lockPath)) return false;
   try {
     if (platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
@@ -149,12 +150,20 @@ export function closeEditor(lockPath, { platform = process.platform } = {}) {
   }
 }
 
-/** Whether an editor started by `runEditorWithLock` is still open. */
-export function isEditorOpen(lockPath) {
-  const pid = readLockPid(lockPath);
-  if (!pid) return false;
+/**
+ * Whether an editor started by `runEditorWithLock` is still open. A lock from before the
+ * machine restarted (a crash or power cut leaves it behind) is deleted: by now its process
+ * ID can belong to any program. `bootedAt` is this boot's, for tests.
+ */
+export function isEditorOpen(lockPath, { bootedAt = bootTime() } = {}) {
+  const lock = readLock(lockPath);
+  if (!lock?.pid) return false;
+  if (lock.bootedAt && Math.abs(lock.bootedAt - bootedAt) > BOOT_DRIFT_MS) {
+    rmSync(lockPath, { force: true });
+    return false;
+  }
   try {
-    process.kill(pid, 0);
+    process.kill(lock.pid, 0);
     return true;
   } catch (error) {
     // EPERM: the process exists but belongs to someone else.
@@ -162,9 +171,17 @@ export function isEditorOpen(lockPath) {
   }
 }
 
-function readLockPid(lockPath) {
+// Two readings of the boot time differ by a few seconds, more if the clock was corrected.
+const BOOT_DRIFT_MS = 60_000;
+
+/** When the machine booted, give or take a few seconds. */
+export function bootTime() {
+  return Date.now() - os.uptime() * 1000;
+}
+
+function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync(lockPath, 'utf8')).pid;
+    return JSON.parse(readFileSync(lockPath, 'utf8'));
   } catch {
     return null;
   }

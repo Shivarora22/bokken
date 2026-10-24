@@ -74,16 +74,18 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
     if (current && !current.done) record(current.attemptId);
   }
 
-  function leave() {
+  /** Leaving the problem closes the editor bokken opened for it, unless `keepEditor`. */
+  function leave({ keepEditor = false } = {}) {
     const current = practiceRef.current;
     if (current && !current.done) recordEvent(ctx.db, current.attemptId, 'close', { idleMs });
+    if (current && !keepEditor) current.session.close();
     ctx.current.attemptId = null;
     practiceRef.current = null;
     setPractice(null);
     setAsking(false);
   }
 
-  /** `/today` and `/open`. */
+  /** `/today` and `/open`. Another problem's editor closes, and this one's opens. */
   async function open(target) {
     setLoading(target.daily ? "Getting today's problem…" : `Opening ${target.ref}…`);
     try {
@@ -92,6 +94,7 @@ export function usePractice({ ctx, config, setConfig, idleMs }) {
       if (previous && previous.attemptId !== loaded.attempt.id && !previous.done) {
         recordEvent(ctx.db, previous.attemptId, 'close', { idleMs });
       }
+      if (previous && previous.problem.slug !== loaded.problem.slug) previous.session.close();
       const { split, askWindowsTerminal } = ctx.resolveSplit(config);
       const session = ctx.createEditorSession({ file: loaded.file, slug: loaded.problem.slug, config });
       const earlierAiHints = aiHints(ctx.db, loaded.attempt.id);

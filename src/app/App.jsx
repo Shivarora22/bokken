@@ -68,7 +68,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
   const [today, setToday] = useState({ status: 'loading' });
   const [homeVisits, setHomeVisits] = useState(0);
   const [credentialsVersion, setCredentialsVersion] = useState(0);
-  // Quitting while the editor bokken opened is still open asks whether to close it too.
+  // Quitting closes the editor bokken opened, so while it's open, quitting asks first.
   const [quitting, setQuitting] = useState(false);
   // /stats: the view on screen (one of VIEWS, or a problem) and how far it's scrolled.
   const [statsName, setStatsName] = useState('overview');
@@ -141,10 +141,11 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     return practice.open(target);
   }
 
-  function leaveProblem() {
+  /** Closes the problem's editor too, unless `keepEditor`. */
+  function leaveProblem({ keepEditor = false } = {}) {
     coach.stop();
     judge.stop();
-    practice.leave();
+    practice.leave({ keepEditor });
   }
 
   function goHome() {
@@ -177,9 +178,8 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     practice.say('Logged out. The LeetCode login saved on this computer is deleted. To end it everywhere, log out on leetcode.com too.', 'success');
   }
 
-  function finishQuit(closeEditor) {
-    if (closeEditor) practice.practiceRef.current?.session.close();
-    leaveProblem();
+  function finishQuit({ keepEditor = false } = {}) {
+    leaveProblem({ keepEditor });
     exit();
   }
 
@@ -362,19 +362,18 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     });
   }
 
-  // ctrl+c works on every screen. Pressed again while bokken asks about the editor, it quits and leaves the editor open.
+  // ctrl+c works on every screen. Pressed again while bokken asks, it quits and leaves the editor open.
   useInput((input, key) => {
     if (!(key.ctrl && input === 'c')) return;
-    if (quitting) finishQuit(false);
+    if (quitting) finishQuit({ keepEditor: true });
     else quit();
   });
 
   useInput(
     (input, key) => {
       if (quitting) {
-        if (key.return || input === 'y' || input === 'Y') finishQuit(true);
-        else if (input === 'n' || input === 'N') finishQuit(false);
-        else if (key.escape) setQuitting(false);
+        if (key.return || input === 'y' || input === 'Y') finishQuit();
+        else if (input === 'n' || input === 'N' || key.escape) setQuitting(false);
         return;
       }
       if (practice.asking) {
@@ -559,7 +558,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
       <Box paddingX={1} flexShrink={0}>
         {quitting && current ? (
           <Text color="yellow">
-            Close {current.session.editor.name} too? <Text bold>[Y/n]</Text> · Esc to stay in bokken
+            Quit bokken? {current.session.editor.name} closes too, so save your work there first. <Text bold>[Y/n]</Text>
           </Text>
         ) : practice.asking ? (
           <Text color="yellow">
