@@ -155,17 +155,8 @@ export function attemptTimes(db, attemptId, { now = new Date(), idleMs = DEFAULT
 
 /** Home screen numbers: active time since Monday, and days in a row with practice. */
 export function practiceSummary(db, { now = new Date(), idleMs = DEFAULT_IDLE_MS } = {}) {
-  const monday = new Date(now);
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-
-  let weekMs = 0;
-  const ids = db.prepare('SELECT DISTINCT attempt_id AS id FROM events WHERE at >= ?').all(monday.toISOString());
-  for (const { id } of ids) {
-    weekMs += activeMs(attemptEvents(db, id).filter((event) => new Date(event.at) >= monday), { idleMs });
-  }
-
-  const days = new Set(db.prepare("SELECT at FROM events WHERE type != 'close'").all().map((row) => localDay(new Date(row.at))));
+  const weekMs = activeMsBetween(db, startOfWeek(now), null, { idleMs });
+  const days = practiceDays(db);
   let streakDays = 0;
   const day = new Date(now);
   if (!days.has(localDay(day))) day.setDate(day.getDate() - 1);
@@ -174,6 +165,32 @@ export function practiceSummary(db, { now = new Date(), idleMs = DEFAULT_IDLE_MS
     day.setDate(day.getDate() - 1);
   }
   return { weekMs, streakDays };
+}
+
+/** Monday 00:00 local time of the week `date` is in. */
+export function startOfWeek(date) {
+  const monday = new Date(date);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  return monday;
+}
+
+/** Active time from `from` until `to` (or ever since, when `to` is null), across every attempt. */
+export function activeMsBetween(db, from, to, { idleMs = DEFAULT_IDLE_MS } = {}) {
+  const inRange = (at) => at >= from && (!to || at < to);
+  let total = 0;
+  const ids = to
+    ? db.prepare('SELECT DISTINCT attempt_id AS id FROM events WHERE at >= ? AND at < ?').all(from.toISOString(), to.toISOString())
+    : db.prepare('SELECT DISTINCT attempt_id AS id FROM events WHERE at >= ?').all(from.toISOString());
+  for (const { id } of ids) {
+    total += activeMs(attemptEvents(db, id).filter((event) => inRange(new Date(event.at))), { idleMs });
+  }
+  return total;
+}
+
+/** The local days you practiced on (any activity but `close`). */
+export function practiceDays(db) {
+  return new Set(db.prepare("SELECT at FROM events WHERE type != 'close'").all().map((row) => localDay(new Date(row.at))));
 }
 
 /** The most recent unfinished attempt, for "Continue" on the home screen. */

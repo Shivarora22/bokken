@@ -1,6 +1,6 @@
 // Live check against the real LeetCode API: `npm run smoke`. Uses a throwaway in-memory database.
 import { openDb } from '../src/db.js';
-import { createClient, getDaily, getProblem, lookupProblem } from '../src/leetcode.js';
+import { createClient, fetchTopicPage, getDaily, getProblem, lookupProblem } from '../src/leetcode.js';
 import { htmlToMarkdown } from '../src/markdown.js';
 
 try {
@@ -18,6 +18,10 @@ try {
   const topics = problem.topics.map((topic) => topic.name).join(', ');
   console.log(`${problem.frontendId}. ${problem.title} [${problem.difficulty}] · ${topics} · ${problem.hints.length} hints · ${problem.snippets.length} languages\n`);
   console.log(htmlToMarkdown(problem.content).split('\n').slice(0, 12).join('\n'));
+
+  const total = await fetchTopicPage(db, client, 'dynamic-programming', 0);
+  const { fetched } = db.prepare("SELECT count(*) AS fetched FROM problem_topics WHERE topic_slug = 'dynamic-programming'").get();
+  console.log(`\nDynamic Programming: ${total} problems, ${fetched} in the first page.`);
   console.log('\nSmoke check passed.');
 } catch (error) {
   console.error(`Smoke check failed: ${error.message}`);

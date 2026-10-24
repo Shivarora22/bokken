@@ -164,6 +164,15 @@ export const USER_STATUS = `
     userStatus { isSignedIn username }
   }`;
 
+// One page of a topic's problems, in LeetCode's order. LeetCode returns at most 100 per request.
+export const TOPIC_PROBLEMS = `
+  query topicProblems($tags: [String!], $limit: Int, $skip: Int) {
+    questionList(categorySlug: "", limit: $limit, skip: $skip, filters: { tags: $tags }) {
+      totalNum
+      data { titleSlug topicTags { name slug } }
+    }
+  }`;
+
 // --- Login -----------------------------------------------------------------
 
 /**
@@ -250,25 +259,32 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 // A cached problem older than this is fetched again, and pruneProblems deletes it.
 const PROBLEM_MAX_AGE_DAYS = 30;
+// The problem list, and each page of a topic's problems, are fetched at most once a week.
+const LIST_MAX_AGE = 7 * DAY;
+export const TOPIC_PAGE_SIZE = 100;
+const PROGRESS = new Set(['ac', 'notac']);
 
 /**
  * @typedef {{ frontendId: number, questionId: number, slug: string, title: string,
  *   difficulty: string, paidOnly: boolean, acRate: number | null }} ProblemSummary
  */
 
-/** Replaces the catalog with LeetCode's full problem list. Attempts live in other tables, so they're untouched. */
+/**
+ * Replaces the catalog with LeetCode's full problem list. Fetched logged in, it also marks the
+ * problems you've solved or tried on LeetCode. Attempts live in other tables, so they're untouched.
+ */
 export async function syncCatalog(db, client, { now = new Date() } = {}) {
   const body = await client.getJson(PROBLEM_LIST_PATH);
   const pairs = body?.stat_status_pairs;
   if (!Array.isArray(pairs)) throw changed('the problem list has no stat_status_pairs');
 
   const insert = db.prepare(
-    'INSERT OR REPLACE INTO catalog (frontend_id, question_id, slug, title, difficulty, paid_only, ac_rate) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT OR REPLACE INTO catalog (frontend_id, question_id, slug, title, difficulty, paid_only, ac_rate, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   );
   return transaction(db, () => {
     db.exec('DELETE FROM catalog');
     let count = 0;
-    for (const { stat, difficulty, paid_only } of pairs) {
+    for (const { stat, difficulty, paid_only, status } of pairs) {
       if (!stat?.question__title_slug || !Number.isInteger(stat.frontend_question_id)) {
         throw changed('a problem in the list has no slug or number');
       }
@@ -282,12 +298,80 @@ export async function syncCatalog(db, client, { now = new Date() } = {}) {
         DIFFICULTIES[difficulty?.level] ?? 'Unknown',
         paid_only ? 1 : 0,
         acRate,
+        PROGRESS.has(status) ? status : null,
       );
       count++;
     }
     setMeta(db, 'catalog_fetched_at', now.toISOString());
+    setMeta(db, 'catalog_progress', body.user_name ? '1' : '0');
     return count;
   });
+}
+
+/** Whether the catalog's solved and tried marks are yours: fetched logged in, and you still are. */
+export function leetcodeProgress(db, client) {
+  return client.hasSession() && getMeta(db, 'catalog_progress') === '1';
+}
+
+/** The problem list, fetched again once it's a week old. When LeetCode can't be reached, an older one is used. */
+export async function freshCatalog(db, client, { now = new Date() } = {}) {
+  const fetchedAt = getMeta(db, 'catalog_fetched_at');
+  if (fetchedAt && now - new Date(fetchedAt) <= LIST_MAX_AGE) return;
+  try {
+    await syncCatalog(db, client, { now });
+  } catch (error) {
+    if (!fetchedAt) throw error;
+  }
+}
+
+/** After logging in, the problem list is fetched again on next use, to bring your progress. */
+export function expireCatalog(db) {
+  db.prepare("UPDATE meta SET value = '1970-01-01T00:00:00.000Z' WHERE key = 'catalog_fetched_at'").run();
+}
+
+/**
+ * Fetches one page (100 problems, in LeetCode's order) of a topic's problems. Their topics go
+ * in problem_topics, and the page counts as fetched for a week. Returns how many problems
+ * the topic has.
+ */
+export async function fetchTopicPage(db, client, topicSlug, page, { now = new Date() } = {}) {
+  const data = await client.graphql('topicProblems', TOPIC_PROBLEMS, { tags: [topicSlug], limit: TOPIC_PAGE_SIZE, skip: page * TOPIC_PAGE_SIZE });
+  const list = data.questionList;
+  if (!Number.isInteger(list?.totalNum) || !Array.isArray(list.data)) throw changed("a topic's problems came back without totalNum or data");
+  if (list.data.some((q) => !q.titleSlug)) throw changed("a problem in a topic's list has no slug");
+
+  transaction(db, () => {
+    const remove = db.prepare('DELETE FROM problem_topics WHERE slug = ?');
+    const insert = db.prepare('INSERT INTO problem_topics (slug, topic_slug, topic_name) VALUES (?, ?, ?)');
+    for (const q of list.data) {
+      remove.run(q.titleSlug);
+      for (const topic of q.topicTags ?? []) insert.run(q.titleSlug, topic.slug, topic.name);
+    }
+    db.prepare(
+      'INSERT INTO topic_pages (topic_slug, page, total, fetched_at) VALUES (?, ?, ?, ?) ON CONFLICT (topic_slug, page) DO UPDATE SET total = excluded.total, fetched_at = excluded.fetched_at',
+    ).run(topicSlug, page, list.totalNum, now.toISOString());
+  });
+  return list.totalNum;
+}
+
+/**
+ * What bokken has of a topic's problems: `total` is how many LeetCode says it has (null before
+ * the first page), and `nextPage` is the first page not fetched this week (null when all are).
+ */
+export function topicProgress(db, topicSlug, { now = new Date() } = {}) {
+  const rows = db.prepare('SELECT page, total, fetched_at FROM topic_pages WHERE topic_slug = ? ORDER BY fetched_at DESC, page DESC').all(topicSlug);
+  if (!rows.length) return { total: null, nextPage: 0 };
+  const total = rows[0].total;
+  const fresh = new Set(rows.filter((row) => now - new Date(row.fetched_at) <= LIST_MAX_AGE).map((row) => row.page));
+  const pages = Math.ceil(total / TOPIC_PAGE_SIZE);
+  let nextPage = null;
+  for (let page = 0; page < pages; page++) {
+    if (!fresh.has(page)) {
+      nextPage = page;
+      break;
+    }
+  }
+  return { total, nextPage };
 }
 
 /** "1", "two-sum", "Two Sum" or a leetcode.com/problems/… link. */
@@ -312,7 +396,7 @@ export async function lookupProblem(db, client, text, { now = new Date() } = {})
   const age = fetchedAt ? now - new Date(fetchedAt) : Infinity;
 
   let synced = false;
-  if (age > 7 * DAY) {
+  if (age > LIST_MAX_AGE) {
     try {
       await syncCatalog(db, client, { now });
       synced = true;

@@ -1,8 +1,12 @@
 import { Command, CommanderError } from 'commander';
 import pkg from '../package.json' with { type: 'json' };
 import { chatModels, createAdapter, PROVIDERS, resolveAi } from './ai/providers.js';
+import { browseProblems, parseFilters } from './browse.js';
+import { openDb } from './db.js';
 import { runEditorWithLock } from './editor.js';
+import { createClient, leetcodeProgress } from './leetcode.js';
 import { getPaths, loadConfig, loadCredentials, saveConfig, saveCredentials } from './settings.js';
+import { statsView } from './stats.js';
 
 // --- Commands --------------------------------------------------------------
 
@@ -11,6 +15,7 @@ const defaults = {
   // Loaded on demand, so plain commands don't pay for Ink and React.
   openApp: async (options = {}) => (await import('./app/open.jsx')).openApp({ version: pkg.version, ...options }),
   aiCommands: async () => ({ aiStatus, aiOff }),
+  analytics: async () => ({ stats, list }),
   logout,
 };
 
@@ -22,8 +27,9 @@ const defaults = {
  * @returns {Promise<number>}
  */
 export async function main(argv, deps = {}) {
-  const { isInteractive, openApp, aiCommands, logout: logoutFn, output } = { ...defaults, ...deps };
+  const { isInteractive, openApp, aiCommands, analytics, logout: logoutFn, output } = { ...defaults, ...deps };
   const write = output?.writeOut ?? ((text) => process.stdout.write(text));
+  const writeErr = output?.writeErr ?? ((text) => process.stderr.write(text));
   let exitCode = 0;
 
   const program = new Command('bokken')
@@ -64,6 +70,23 @@ export async function main(argv, deps = {}) {
       exitCode = (await aiCommands()).aiOff({ write });
     });
 
+  program
+    .command('stats')
+    .description('how your practice is going: overview, topics, difficulty, trend, or one problem')
+    .argument('[view...]', 'overview (the default), topics, difficulty, trend, or a problem')
+    .option('--json', 'print JSON, for scripts')
+    .action(async (words, { json }) => {
+      exitCode = await (await analytics()).stats({ view: words.join(' ') || 'overview', json, write });
+    });
+  program
+    .command('list')
+    .description('list problems that match: a difficulty, a topic, solved, unsolved or tried')
+    .argument('[filters...]', 'e.g. easy dp unsolved')
+    .option('--json', 'print JSON, for scripts')
+    .action(async (words, { json }) => {
+      exitCode = await (await analytics()).list({ filters: words.join(' '), json, write, writeErr });
+    });
+
   program.command('login').description('log in to LeetCode, to run and submit your code').action(inApp({ start: { login: true } }));
   program
     .command('logout')
@@ -87,9 +110,66 @@ export async function main(argv, deps = {}) {
   } catch (error) {
     // Commander has already printed its message (or the help text).
     if (error instanceof CommanderError) return error.exitCode === 0 ? 0 : 2;
-    const writeErr = output?.writeErr ?? ((text) => process.stderr.write(text));
     writeErr(`bokken: ${error.message}\n`);
     return 1;
+  }
+}
+
+// --- bokken stats | list ---------------------------------------------------
+
+/**
+ * `bokken stats [view] [--json]`: from your own attempts, with no requests. The JSON is
+ * `statsView`'s, every time in seconds. Returns the exit code.
+ */
+export async function stats({ view, json, write, env = process.env, paths = getPaths(env), now = new Date(), width = process.stdout.columns || 80 }) {
+  const db = await openDb(paths.db);
+  try {
+    const client = createClient({ session: loadCredentials(paths.credentials).leetcode?.session });
+    const idleMs = loadConfig(paths.config).stats.idleMinutes * 60_000;
+    const data = statsView(db, view, { now, idleMs, progress: leetcodeProgress(db, client) });
+    if (json) {
+      write(JSON.stringify(data, null, 2) + '\n');
+    } else {
+      // Loaded only for text, since it brings the picture decoders along.
+      const { statsLines } = await import('./app/stats-lines.js');
+      write(statsLines(data, width).join('\n') + '\n');
+    }
+    return data.error ? 1 : 0;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * `bokken list [filters] [--json]`: like /browse. For a topic, it fetches at most the topic's
+ * first page, so a script can't crawl LeetCode through it; /browse in the app loads more.
+ * Returns the exit code.
+ */
+export async function list({ filters: text, json, write, writeErr, env = process.env, paths = getPaths(env), now = new Date(), fetch }) {
+  const db = await openDb(paths.db);
+  try {
+    const filters = parseFilters(db, text);
+    if (filters.error) {
+      writeErr(`${filters.error}\n`);
+      return 2;
+    }
+    const client = createClient({ session: loadCredentials(paths.credentials).leetcode?.session, ...(fetch ? { fetch } : {}) });
+    const { problems, topic } = await browseProblems(db, client, filters, { now });
+    if (json) {
+      write(JSON.stringify(problems, null, 2) + '\n');
+    } else {
+      const status = { solved: '  ✓ solved', tried: '  tried' };
+      for (const p of problems) {
+        const accepted = p.acRate === null ? '' : ` · ${Math.round(p.acRate)}% accepted`;
+        write(`${String(p.frontendId).padStart(4)}. ${p.title} · ${p.difficulty}${accepted}${status[p.status] ?? ''}\n`);
+      }
+    }
+    if (topic && topic.nextPage !== null) {
+      writeErr(`These are the ${topic.fetched} of LeetCode's ${topic.total} ${topic.name} problems bokken has fetched. /browse in the app fetches more.\n`);
+    }
+    return 0;
+  } finally {
+    db.close();
   }
 }
 

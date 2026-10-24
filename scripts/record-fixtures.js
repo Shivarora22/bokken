@@ -1,7 +1,7 @@
 // Records real LeetCode responses into test/fixtures/ for the tests to replay.
-// Run it when the API changes: `npm run record`. It sends seven requests.
+// Run it when the API changes: `npm run record`. It sends eight requests.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { createClient, DAILY, PROBLEM_LIST_PATH, QUESTION, SEARCH, USER_STATUS } from '../src/leetcode.js';
+import { createClient, DAILY, PROBLEM_LIST_PATH, QUESTION, SEARCH, TOPIC_PAGE_SIZE, TOPIC_PROBLEMS, USER_STATUS } from '../src/leetcode.js';
 
 const dir = new URL('../test/fixtures/', import.meta.url);
 mkdirSync(dir, { recursive: true });
@@ -43,3 +43,9 @@ save('search-two-sum.json', lastBody);
 
 await client.graphql('userStatus', USER_STATUS);
 save('user-status-anonymous.json', lastBody);
+
+// The first page of a topic; keep a few problems with different topics.
+const IN_TOPIC = new Set(['longest-palindromic-substring', 'climbing-stairs', 'house-robber', 'coin-change']);
+await client.graphql('topicProblems', TOPIC_PROBLEMS, { tags: ['dynamic-programming'], limit: TOPIC_PAGE_SIZE, skip: 0 });
+const { questionList } = lastBody.data;
+save('topic-dynamic-programming.json', { data: { questionList: { ...questionList, data: questionList.data.filter((q) => IN_TOPIC.has(q.titleSlug)) } } });

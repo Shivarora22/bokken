@@ -1,10 +1,15 @@
 import { Box, Text, useApp, useInput, useWindowSize } from 'ink';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PROVIDERS } from '../ai/providers.js';
+import { browseProblems, loadMore, nextProblem, parseFilters, randomProblem, suggestNext } from '../browse.js';
+import { expireCatalog, leetcodeProgress } from '../leetcode.js';
 import { htmlToMarkdown } from '../markdown.js';
+import { statsView, topicStats, VIEWS } from '../stats.js';
+import { findTopic } from '../topics.js';
 import { attemptTimes, latestActiveAttempt, practiceSummary, recordEvent } from '../tracking.js';
 import { humanDuration } from '../util.js';
 import { AiSetup } from './AiSetup.jsx';
+import { Browse } from './Browse.jsx';
 import { clampOffset, Rule, TextInput } from './components.jsx';
 import { Home, MESSAGE_STYLES } from './Home.jsx';
 import { Login } from './Login.jsx';
@@ -12,6 +17,8 @@ import { markdownLines, textLines } from './markdown-lines.js';
 import { tildePath, todaysProblem } from './practice.js';
 import { ProblemView, problemLayout } from './ProblemView.jsx';
 import { Setup } from './Setup.jsx';
+import { statsLines } from './stats-lines.js';
+import { StatsView } from './StatsView.jsx';
 import { useCoach } from './useCoach.js';
 import { useJudge } from './useJudge.js';
 import { usePractice } from './usePractice.js';
@@ -23,6 +30,10 @@ const HELP = `Commands
   /run              run your code on the examples, on LeetCode
   /submit           submit your code to LeetCode; Accepted marks it solved
   /done             mark it solved and stop the clock
+  /next [topic]     what to practice next, and why
+  /stats [view]     your numbers: topics, difficulty, trend, a problem
+  /browse [filters] problems to pick from, e.g. /browse dp medium unsolved
+  /random [filters] open a random one that matches
   /new              start a fresh chat with the coach
   /ai               set up the AI coach (any provider)
   /login            log in to LeetCode, to run and submit
@@ -59,6 +70,13 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
   const [credentialsVersion, setCredentialsVersion] = useState(0);
   // Quitting while the editor bokken opened is still open asks whether to close it too.
   const [quitting, setQuitting] = useState(false);
+  // /stats: the view on screen (one of VIEWS, or a problem) and how far it's scrolled.
+  const [statsName, setStatsName] = useState('overview');
+  const [statsOffset, setStatsOffset] = useState(0);
+  // /browse: the list on screen.
+  const [list, setList] = useState(null);
+  // What /next or /random is waiting on, for the footer.
+  const [working, setWorking] = useState(null);
   const pendingStart = useRef(start?.daily || start?.ref ? start : null);
   const started = useRef(false);
   // Where AI setup and login go when they're done: the screens queued here, then home.
@@ -165,6 +183,90 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     exit();
   }
 
+  function showStats(name) {
+    leaveProblem();
+    setStatsName(VIEWS.includes(name.toLowerCase()) ? name.toLowerCase() : name);
+    setStatsOffset(0);
+    setScreen('stats');
+  }
+
+  /** `/next` and `/random` wait on LeetCode: the footer says what for, and a failure is reported. */
+  async function work(label, task) {
+    setWorking(label);
+    try {
+      await task();
+    } catch (error) {
+      practice.say(error.message, 'error');
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  function suggest(text) {
+    const topic = text ? findTopic(ctx.db, text) : null;
+    if (text && !topic) return practice.say(`No topic matches "${text}". Try one like dp, graph or binary search.`, 'error');
+    return work('Finding your next problem…', async () => {
+      const next = await nextProblem(ctx.db, ctx.client, { topic });
+      if (!next.problem) {
+        return practice.say(`No ${next.topic.name} problem you haven't started turned up. /browse ${next.topic.name.toLowerCase()} lists them all.`);
+      }
+      const p = next.problem;
+      const accepted = p.acRate === null ? '' : ` · ${Math.round(p.acRate)}% accepted`;
+      practice.say(`Next: ${p.frontendId}. ${p.title} · ${p.difficulty}${accepted}. ${next.why} Type /open ${p.frontendId} to start.`, 'success');
+      setHomeVisits((n) => n + 1);
+    });
+  }
+
+  function browse(text) {
+    const filters = parseFilters(ctx.db, text);
+    if (filters.error) return practice.say(filters.error, 'error');
+    leaveProblem();
+    const title = [filters.topic?.name, filters.difficulty, filters.status].filter(Boolean).join(' · ') || 'every problem';
+    setList({ title, filters, problems: [], topic: null, loading: filters.topic ? `Getting ${filters.topic.name} problems…` : 'Loading…' });
+    setScreen('browse');
+    return showList(filters, title);
+  }
+
+  async function showList(filters, title, before = null) {
+    try {
+      const result = await browseProblems(ctx.db, ctx.client, filters);
+      // After "Load more", the cursor goes to the first new problem.
+      const initial = before ? result.problems.find((p) => !before.has(p.slug))?.slug : undefined;
+      setList({ title, filters, ...result, initial, loading: null });
+    } catch (error) {
+      setScreen('home');
+      practice.say(error.message, 'error');
+    }
+  }
+
+  async function loadMoreProblems() {
+    const { filters, title, problems } = list;
+    setList((l) => ({ ...l, loading: `Getting more ${filters.topic.name} problems…` }));
+    try {
+      await loadMore(ctx.db, ctx.client, filters.topic.slug);
+    } catch (error) {
+      setScreen('home');
+      return practice.say(error.message, 'error');
+    }
+    return showList(filters, title, new Set(problems.map((p) => p.slug)));
+  }
+
+  function openFromList(slug) {
+    setList(null);
+    setScreen('home');
+    openProblem({ ref: slug });
+  }
+
+  function openRandom(text) {
+    const filters = parseFilters(ctx.db, text);
+    if (filters.error) return practice.say(filters.error, 'error');
+    return work('Picking a problem…', async () => {
+      const problem = await randomProblem(ctx.db, ctx.client, filters);
+      if (!problem) return practice.say('No problem matches. /browse shows what there is.');
+      await openProblem({ ref: problem.slug });
+    });
+  }
+
   function runCommand(text) {
     const [rawName, ...args] = text.slice(1).trim().split(/\s+/);
     const name = rawName.toLowerCase();
@@ -172,6 +274,8 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     if (current && !current.done && !['hint', 'run', 'submit', 'done', 'quit', 'home'].includes(name)) {
       recordEvent(ctx.db, current.attemptId, 'command', { idleMs, data: { name } });
     }
+    // The stats screen has no messages: anything else is answered on the home screen.
+    if (screen === 'stats' && !['stats', 'quit', 'exit', 'ai', 'login'].includes(name)) setScreen('home');
     switch (name) {
       case 'today':
         return openProblem({ daily: true });
@@ -189,6 +293,16 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
       case 'done':
         setView('notifications');
         return practice.markDone();
+      case 'next':
+        setView('notifications');
+        return suggest(args.join(' '));
+      case 'stats':
+        return showStats(args.join(' ') || 'overview');
+      case 'browse':
+        return browse(args.join(' '));
+      case 'random':
+        setView('notifications');
+        return openRandom(args.join(' '));
       case 'new':
         setView('coach');
         return coach.newChat();
@@ -222,8 +336,10 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     const text = raw.trim();
     if (!text) return;
     setHistory((h) => (h.at(-1) === text ? h : [...h, text].slice(-100)));
-    if (practice.loading) return practice.say('Still working on the last command…');
+    if (practice.loading || working) return practice.say('Still working on the last command…');
     if (text.startsWith('/')) return runCommand(text);
+    // The stats screen has no messages, so the answer is on the home screen.
+    if (screen === 'stats') setScreen('home');
     if (coach.busy) return practice.coachSay('Still answering. Press Esc to stop it.');
     setView('coach');
     coach.ask(text);
@@ -278,6 +394,15 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
         coach.stop();
       } else if (key.escape && judge.busy) {
         judge.stop();
+      } else if (screen === 'stats' && key.tab) {
+        // From a problem's attempts, tab goes back to the overview.
+        setStatsName((name) => VIEWS[(VIEWS.indexOf(name) + 1) % VIEWS.length]);
+        setStatsOffset(0);
+      } else if (screen === 'stats' && (key.pageUp || key.pageDown)) {
+        const height = statsHeight;
+        setStatsOffset((o) => clampOffset(o + (key.pageUp ? -1 : 1) * Math.max(1, height - 2), statsLinesShown.length, height));
+      } else if (screen === 'stats' && key.escape) {
+        goHome();
       } else if (key.ctrl && input === 'e') {
         practice.openEditor();
       } else if (screen === 'problem' && key.tab) {
@@ -286,7 +411,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
         scroll(shown, key.pageUp ? -1 : 1);
       }
     },
-    { isActive: screen === 'home' || screen === 'problem' },
+    { isActive: screen === 'home' || screen === 'problem' || screen === 'stats' },
   );
 
   const problemLines = useMemo(
@@ -302,9 +427,18 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
     () => (layout.notifications ? renderMessages(current.notifications, layout.notifications.width) : []),
     [current?.notifications, layout.notifications?.width],
   );
+  // StatsView's header, rule and gap, under the app's own header rows.
+  const statsHeight = Math.max(1, rows - 6);
+  const statsLinesShown = useMemo(
+    () => (screen === 'stats' ? statsLines(statsView(ctx.db, statsName, { idleMs, progress: leetcodeProgress(ctx.db, ctx.client) }), columns - 2) : []),
+    [screen, statsName, columns],
+  );
   const home = useMemo(() => {
     if (screen === 'setup' || current) return null;
     const latest = latestActiveAttempt(ctx.db);
+    // From what bokken already has: the home screen never waits on LeetCode.
+    const next = suggestNext(ctx.db, { progress: leetcodeProgress(ctx.db, ctx.client) });
+    const ranked = topicStats(ctx.db).filter((topic) => topic.score !== null);
     return {
       summary: practiceSummary(ctx.db, { idleMs }),
       continueItem: latest && {
@@ -314,6 +448,8 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
         difficulty: latest.difficulty,
         activeMs: attemptTimes(ctx.db, latest.id, { idleMs }).activeMs,
       },
+      suggested: next.problem && { ...next.problem, topic: next.topic.name },
+      weakest: ranked.length >= 2 ? ranked.slice(0, 3) : [],
     };
   }, [screen, homeVisits, current === null]);
 
@@ -361,10 +497,20 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
           ctx={ctx}
           onCancel={showNext}
           onDone={(username) => {
+            // The problem list is fetched again on next use, to bring your solved problems.
+            expireCatalog(ctx.db);
             showNext();
             practice.say(`✓ Logged in to LeetCode as ${username}.`, 'success');
           }}
         />
+      </Box>
+    );
+  }
+
+  if (screen === 'browse' && list) {
+    return (
+      <Box flexDirection="column" width={columns} height={rows}>
+        <Browse width={columns} height={rows} list={list} onOpen={openFromList} onLoadMore={loadMoreProblems} onCancel={goHome} />
       </Box>
     );
   }
@@ -375,6 +521,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
   else if (judge.busy) footer = 'Esc stops waiting for LeetCode';
   else if (inProblem && layout.wide) footer = 'ctrl+e editor · tab scroll · /hint · /run · /submit · /done · /help';
   else if (inProblem) footer = `tab ${sections[(sections.indexOf(shown) + 1) % sections.length]} · ctrl+e editor · /hint · /run · /submit`;
+  else if (screen === 'stats') footer = 'tab next view · PgUp/PgDn scroll · Esc home · /next · /browse';
 
   return (
     <Box flexDirection="column" width={columns} height={rows}>
@@ -392,8 +539,20 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
             offsets={offsets}
             getTimes={(now) => attemptTimes(ctx.db, current.attemptId, { now: new Date(now), idleMs })}
           />
+        ) : screen === 'stats' ? (
+          <StatsView width={columns} height={rows - 3} view={statsName} lines={statsLinesShown} offset={statsOffset} />
         ) : (
-          <Home version={version} width={columns} height={rows - 3} {...home} today={today} messages={practice.messages} workspace={config.workspace} />
+          <Home
+            version={version}
+            width={columns}
+            height={rows - 3}
+            {...home}
+            today={today}
+            messages={practice.messages}
+            workspace={config.workspace}
+            loggedIn={ctx.client.hasSession()}
+            aiReady={Boolean(coach.settings && !coach.settings.keyProblem)}
+          />
         )}
       </Box>
       <Rule width={columns} junctions={inProblem ? layout.dividers.map((at) => ({ at, char: '┴' })) : []} />
@@ -419,7 +578,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
       </Box>
       <Box paddingX={1} flexShrink={0}>
         <Text dimColor wrap="truncate-end">
-          {practice.loading ? `… ${practice.loading}` : footer}
+          {practice.loading || working ? `… ${practice.loading ?? working}` : footer}
         </Text>
       </Box>
     </Box>

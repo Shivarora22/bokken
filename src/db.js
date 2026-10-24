@@ -73,6 +73,23 @@ const MIGRATIONS = [
   CREATE INDEX submissions_by_attempt ON submissions (attempt_id);
   CREATE UNIQUE INDEX submissions_by_remote_id ON submissions (remote_id) WHERE remote_id IS NOT NULL;
   `,
+  `
+  -- Your progress on LeetCode, from the problem list when it's fetched logged in: ac (solved), notac (tried) or null.
+  ALTER TABLE catalog ADD COLUMN status TEXT;
+
+  -- The pages of a topic's problems fetched so far, and how many problems the topic has.
+  -- The problems' topics go in problem_topics.
+  CREATE TABLE topic_pages (
+    topic_slug TEXT NOT NULL,
+    page INTEGER NOT NULL,
+    total INTEGER NOT NULL,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (topic_slug, page)
+  );
+
+  -- Fetch the problem list again on next use, so it brings your progress.
+  UPDATE meta SET value = '1970-01-01T00:00:00.000Z' WHERE key = 'catalog_fetched_at';
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
