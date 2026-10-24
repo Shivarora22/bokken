@@ -129,7 +129,7 @@ function migrate(db) {
   db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)');
   const current = Number(getMeta(db, 'schema_version') ?? 0);
   if (current > MIGRATIONS.length) {
-    throw new Error(`Your bokken database is from a newer version of bokken (schema ${current}). Update bokken: npm i -g bokken`);
+    throw new Error(`Your bokken database is from a newer version of bokken (schema ${current}). Update bokken: npm i -g @shiotagi/bokken`);
   }
   for (let version = current + 1; version <= MIGRATIONS.length; version++) {
     transaction(db, () => {

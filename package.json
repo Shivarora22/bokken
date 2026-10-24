@@ -1,5 +1,5 @@
 {
-  "name": "bokken",
+  "name": "@shiotagi/bokken",
   "version": "0.2.0",
   "description": "Practice coding problems in your terminal, with a live timer, hints and an optional AI coach next to your own editor",
   "keywords": [
@@ -27,6 +27,9 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.13"
   },
