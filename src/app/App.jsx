@@ -52,7 +52,7 @@ const KEY_EVENT_EVERY_MS = 30_000;
  * `ctx` holds the database, LeetCode client, AI and terminal helpers (see open.jsx).
  * `size` fixes the screen size, for tests.
  */
-export function App({ version, ctx, firstRun = false, start, size, showUsage = false }) {
+export function App({ version, ctx, firstRun = false, start, size }) {
   const { exit } = useApp();
   const windowSize = useWindowSize();
   const { columns, rows } = size ?? windowSize;
@@ -85,7 +85,7 @@ export function App({ version, ctx, firstRun = false, start, size, showUsage = f
   const idleMs = config.stats.idleMinutes * 60_000;
 
   const practice = usePractice({ ctx, config, setConfig, idleMs });
-  const coach = useCoach({ ctx, config, credentialsVersion, practice, showUsage, idleMs });
+  const coach = useCoach({ ctx, config, credentialsVersion, practice, idleMs });
   const judge = useJudge({ ctx, practice, idleMs });
   const current = practice.practice;
   // The solution question takes two lines instead of the input's one.

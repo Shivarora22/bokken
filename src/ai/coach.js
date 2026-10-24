@@ -38,7 +38,7 @@ export function createCoach(adapter, settings) {
         effort: 'low',
         signal,
       });
-      return { mode: parseMode(result.text), usage: result.usage, log: log('classify', CLASSIFY_VERSION) };
+      return { mode: parseMode(result.text), log: log('classify', CLASSIFY_VERSION) };
     },
 
     /**
@@ -49,7 +49,6 @@ export function createCoach(adapter, settings) {
       const messages = hintMessages({ problem, code, lang, lastResult, earlierHints, level, question });
       const request = { system: HINT_SYSTEM, maxTokens: MAX_TOKENS.hint, signal };
       let result = await adapter.streamChat({ ...request, messages });
-      const usage = [result.usage];
       let text = result.text.trim();
       let retried = false;
       let stripped = false;
@@ -59,14 +58,13 @@ export function createCoach(adapter, settings) {
           ...request,
           messages: [...messages, { role: 'assistant', content: text }, { role: 'user', content: NO_CODE_RETRY }],
         });
-        usage.push(result.usage);
         text = result.text.trim();
         if (containsCode(text)) {
           stripped = true;
           text = stripCode(text);
         }
       }
-      return { text, declined: result.declined, usage: addUsage(usage), log: log('hint', HINT_VERSION, { level, retried, stripped }) };
+      return { text, declined: result.declined, log: log('hint', HINT_VERSION, { level, retried, stripped }) };
     },
 
     /**
@@ -85,25 +83,11 @@ export function createCoach(adapter, settings) {
       return {
         text: result.text,
         declined: result.declined,
-        usage: result.usage,
         gaveSolution: containsSolution(result.text, problem.metaData),
         log: log('ask', ASK_VERSION, { mode, level, ...(mode === 'solution' ? { variant: variant ?? 'all' } : {}) }),
       };
     },
   };
-}
-
-export function addUsage(list) {
-  const known = list.filter(Boolean);
-  if (!known.length) return null;
-  return known.reduce(
-    (sum, u) => ({
-      inputTokens: sum.inputTokens + (u.inputTokens ?? 0),
-      outputTokens: sum.outputTokens + (u.outputTokens ?? 0),
-      cachedTokens: sum.cachedTokens + (u.cachedTokens ?? 0),
-    }),
-    { inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
-  );
 }
 
 // --- Checks ----------------------------------------------------------------

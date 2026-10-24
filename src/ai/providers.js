@@ -16,7 +16,6 @@ export const PROVIDERS = {
     key: 'required',
     keyEnv: ['OPENAI_API_KEY'],
     baseUrl: 'https://api.openai.com/v1',
-    reportsUsage: true,
     preferredModels: [/^gpt-5(\.\d+)?$/, /^gpt-5/, /^gpt-4\.1$/, /^gpt-4o$/],
   },
   gemini: {
@@ -71,7 +70,6 @@ export function resolveAi(config, credentials = {}, env = process.env) {
     name: preset.name,
     adapter: preset.adapter,
     local: Boolean(preset.local),
-    reportsUsage: Boolean(preset.reportsUsage),
     model,
     baseUrl: baseUrl || preset.baseUrl || null,
     apiKey,
@@ -100,7 +98,7 @@ export function defaultModel(id, models) {
 // --- Errors ----------------------------------------------------------------
 
 /**
- * `code` is one of: aborted, timeout, connection, auth, not_found, rate_limit,
+ * `code` is one of: aborted, timeout, connection, auth, unverified, not_found, rate_limit,
  * unavailable, bad_request, unknown.
  */
 export class AiError extends Error {
@@ -129,6 +127,15 @@ export function toAiError(error, settings, { listing = false } = {}) {
     if (!settings.local) return make('connection', `Couldn't reach ${name}. Check your internet connection.`);
     const start = settings.provider === 'ollama' ? ' Start it with: ollama serve' : '';
     return make('connection', `Couldn't reach ${name} at ${settings.baseUrl}. Is it running?${start}`);
+  }
+  // OpenAI only streams some models (o3, GPT-5) for organizations that have verified their
+  // identity: a 400, or a 403 for some models. It's an account setting, not a bad key.
+  if ((status === 400 || status === 403) && /must be verified/i.test(apiMessage(error))) {
+    return make(
+      'unverified',
+      `${name} needs your organization verified to use ${settings.model}. Verify it at https://platform.openai.com/settings/organization/general ` +
+        '(it can take 15 minutes to apply), or run /ai to pick another model.',
+    );
   }
   if (status === 401 || status === 403) return make('auth', `${name} didn't accept your API key. Run /ai to enter a new one.`);
   if (status === 404) {
@@ -160,8 +167,7 @@ function apiMessage(error) {
  *   onText?: (delta: string) => void,
  *   signal?: AbortSignal,
  * }} ChatRequest
- * @typedef {{ text: string, usage: { inputTokens: number, outputTokens: number, cachedTokens: number } | null,
- *   stopReason: string | null, declined: boolean }} ChatResult
+ * @typedef {{ text: string, stopReason: string | null, declined: boolean }} ChatResult
  * @typedef {{ streamChat: (request: ChatRequest) => Promise<ChatResult>, listModels: () => Promise<string[]> }} Adapter
  */
 

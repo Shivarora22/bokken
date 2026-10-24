@@ -15,9 +15,9 @@ import { App } from './App.jsx';
  * Opens the full-screen app and resolves once the user quits. The alternate screen gives
  * the terminal back exactly as it was, like vim does.
  *
- * @param {{ version: string, start?: { daily?: boolean, ref?: string, setup?: boolean, aiSetup?: boolean, login?: boolean }, showUsage?: boolean }} options
+ * @param {{ version: string, start?: { daily?: boolean, ref?: string, setup?: boolean, aiSetup?: boolean, login?: boolean } }} options
  */
-export async function openApp({ version, start, showUsage = false }) {
+export async function openApp({ version, start }) {
   const paths = getPaths();
   const firstRun = !existsSync(paths.config);
   const db = await openDb(paths.db);
@@ -64,6 +64,6 @@ export async function openApp({ version, start, showUsage = false }) {
     }
   });
 
-  const app = render(<App version={version} ctx={ctx} firstRun={firstRun} start={start} showUsage={showUsage} />, { alternateScreen: true, exitOnCtrlC: false });
+  const app = render(<App version={version} ctx={ctx} firstRun={firstRun} start={start} />, { alternateScreen: true, exitOnCtrlC: false });
   await app.waitUntilExit();
 }

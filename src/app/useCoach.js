@@ -7,7 +7,7 @@ import { aiHintText, NEED_PROBLEM } from './usePractice.js';
  * The AI coach: the hint ladder past LeetCode's hints, questions (classified, then answered
  * or streamed), the solution gate, and Esc. `practice` is what usePractice returns.
  */
-export function useCoach({ ctx, config, credentialsVersion, practice, showUsage, idleMs }) {
+export function useCoach({ ctx, config, credentialsVersion, practice, idleMs }) {
   const settings = useMemo(() => resolveAi(config, ctx.loadCredentials(), ctx.env), [config, credentialsVersion]);
   const [coach, setCoach] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -51,13 +51,6 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
     }
   }
 
-  function usageNote(usage) {
-    if (!showUsage) return '';
-    if (!usage) return '\n\n(the provider reported no token usage)';
-    const n = (x) => x.toLocaleString('en-US');
-    return `\n\n(${n(usage.inputTokens)} tokens in${usage.cachedTokens ? `, ${n(usage.cachedTokens)} cached` : ''} · ${n(usage.outputTokens)} out)`;
-  }
-
   /** The next step on the ladder: LeetCode's hints first, then AI nudge → approach → outline. */
   function nextHint() {
     const current = practiceRef.current;
@@ -75,8 +68,8 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
       const result = await coachRef.current.hint({ ...practice.coachContext(), level, question, signal });
       if (result.declined && !result.text) return updateMessage(id, { kind: 'error', text: `${settings.name} declined to answer that.` });
       const text = result.text || 'That hint was all code, so bokken held it back. Try /hint again.';
-      updateMessage(id, { kind: 'hint', text: aiHintText(level, text) + usageNote(result.usage) });
-      ifActive((attemptId) => recordAi(ctx.db, attemptId, { log: result.log, usage: result.usage, hintText: result.text }, { idleMs }));
+      updateMessage(id, { kind: 'hint', text: aiHintText(level, text) });
+      ifActive((attemptId) => recordAi(ctx.db, attemptId, { log: result.log, hintText: result.text }, { idleMs }));
       updatePractice((p) => ({ ...p, aiLevel: Math.max(p.aiLevel, level), aiHints: [...p.aiHints, { level, text: result.text }] }));
     } catch (error) {
       updateMessage(id, { kind: error.code === 'aborted' ? 'info' : 'error', text: error.message });
@@ -93,8 +86,8 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
       try {
         const { wroteCode } = practice.coachContext();
         const hintsUsed = current.hintsShown + current.aiHints.length;
-        const { mode, log, usage } = await coachRef.current.classify({ question, hintsUsed, hasCode: wroteCode, signal });
-        ifActive((attemptId) => recordAi(ctx.db, attemptId, { log: { ...log, mode }, usage, question: true }, { idleMs }));
+        const { mode, log } = await coachRef.current.classify({ question, hintsUsed, hasCode: wroteCode, signal });
+        ifActive((attemptId) => recordAi(ctx.db, attemptId, { log: { ...log, mode }, question: true }, { idleMs }));
         if (mode === 'hint') return await aiHint(signal, { level: Math.min(3, current.aiLevel + 1), question, pendingId: id });
         if (mode === 'solution' && current.solutionShown) return await stream(signal, { mode, variant: 'asked', question, pendingId: id });
         if (mode === 'solution') {
@@ -138,11 +131,11 @@ export function useCoach({ ctx, config, credentialsVersion, practice, showUsage,
       if (result.declined && !result.text) {
         updateMessage(id, { kind: 'error', text: `${settings.name} declined to answer that.` });
       } else {
-        updateMessage(id, { kind: 'ai', text: (result.text || '(no answer)') + usageNote(result.usage) });
+        updateMessage(id, { kind: 'ai', text: result.text || '(no answer)' });
       }
       const gaveSolution = mode === 'solution' || result.gaveSolution;
       ifActive((attemptId) => {
-        recordAi(ctx.db, attemptId, { log: result.log, usage: result.usage }, { idleMs });
+        recordAi(ctx.db, attemptId, { log: result.log }, { idleMs });
         if (gaveSolution) markViewedSolution(ctx.db, attemptId);
       });
       updatePractice((p) => ({

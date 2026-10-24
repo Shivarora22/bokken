@@ -116,8 +116,6 @@ Anything you type that isn't a command goes to the coach.
 | `bokken stats [view] [--json]` | Your practice numbers, with no requests to LeetCode |
 | `bokken list [filters] [--json]` | Problems that match, e.g. `bokken list easy dp unsolved` |
 
-`bokken --usage` opens the app and shows the tokens each AI answer used.
-
 **Filters** go in any order: a difficulty (`easy`, `medium`, `hard`), a status (`solved`, `unsolved`, `tried`) and a topic, by name or short name (`dp`, `bfs`, `heap`, `binary search`). Premium-only problems are left out for now.
 
 ## Practice analytics

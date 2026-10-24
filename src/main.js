@@ -35,7 +35,6 @@ export async function main(argv, deps = {}) {
   const program = new Command('bokken')
     .description(pkg.description)
     .version(pkg.version, '-v, --version')
-    .option('--usage', 'show the tokens each AI answer used')
     .exitOverride();
   // Before adding commands, so they inherit it.
   if (output) program.configureOutput(output);
@@ -44,7 +43,7 @@ export async function main(argv, deps = {}) {
     if (!isInteractive()) {
       program.error('bokken needs an interactive terminal to open the practice app. See `bokken --help`.', { exitCode: 2 });
     }
-    await openApp({ ...options, ...(program.opts().usage ? { showUsage: true } : {}) });
+    await openApp(options);
   };
 
   program.action(inApp({}));

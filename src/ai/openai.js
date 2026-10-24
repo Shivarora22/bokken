@@ -15,39 +15,50 @@ export function createOpenAiAdapter(settings, { fetch, maxRetries = 1 } = {}) {
     maxRetries,
     timeout: 120_000,
   });
+  // OpenAI's reasoning models take an effort. Models that don't reason (GPT-4.1) reject it;
+  // then it's dropped for the rest of the session. Other providers never get it.
+  let sendEffort = settings.provider === 'openai';
+
+  async function run(body, { onText, signal }) {
+    const stream = await client.chat.completions.create(body, { signal });
+    const hideThinking = createThinkFilter();
+    let text = '';
+    let finish = null;
+    for await (const chunk of stream) {
+      const choice = chunk.choices?.[0];
+      const visible = hideThinking(choice?.delta?.content ?? '');
+      if (visible) {
+        text += visible;
+        onText?.(visible);
+      }
+      finish = choice?.finish_reason ?? finish;
+    }
+    const rest = hideThinking.flush();
+    if (rest) {
+      text += rest;
+      onText?.(rest);
+    }
+    return { text, stopReason: finish, declined: finish === 'content_filter' };
+  }
 
   return {
     /** @param {import('./providers.js').ChatRequest} request */
-    async streamChat({ system, messages, onText, signal }) {
+    async streamChat({ system, messages, effort, onText, signal }) {
       const body = {
         model: settings.model,
         stream: true,
         messages: [{ role: 'system', content: system }, ...messages.map(toOpenAiMessage)],
-        // Many compatible servers reject stream_options; only ask where it's known to work.
-        ...(settings.reportsUsage ? { stream_options: { include_usage: true } } : {}),
       };
+      if (sendEffort) {
+        try {
+          return await run({ ...body, reasoning_effort: effort ?? settings.effort }, { onText, signal });
+        } catch (error) {
+          if (error?.status !== 400 || !/reasoning_effort/i.test(error.message)) throw toAiError(error, settings);
+          sendEffort = false;
+        }
+      }
       try {
-        const stream = await client.chat.completions.create(body, { signal });
-        const hideThinking = createThinkFilter();
-        let text = '';
-        let usage = null;
-        let finish = null;
-        for await (const chunk of stream) {
-          const choice = chunk.choices?.[0];
-          const visible = hideThinking(choice?.delta?.content ?? '');
-          if (visible) {
-            text += visible;
-            onText?.(visible);
-          }
-          finish = choice?.finish_reason ?? finish;
-          if (chunk.usage) usage = { inputTokens: chunk.usage.prompt_tokens, outputTokens: chunk.usage.completion_tokens, cachedTokens: 0 };
-        }
-        const rest = hideThinking.flush();
-        if (rest) {
-          text += rest;
-          onText?.(rest);
-        }
-        return { text, usage, stopReason: finish, declined: finish === 'content_filter' };
+        return await run(body, { onText, signal });
       } catch (error) {
         throw toAiError(error, settings);
       }

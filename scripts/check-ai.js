@@ -16,7 +16,7 @@ const fail = (message) => {
 const timed = async (label, work) => {
   const start = Date.now();
   const result = await work();
-  console.log(`  ${label} (${((Date.now() - start) / 1000).toFixed(1)}s${result?.usage ? `, ${result.usage.inputTokens} in / ${result.usage.outputTokens} out` : ''})`);
+  console.log(`  ${label} (${((Date.now() - start) / 1000).toFixed(1)}s)`);
   return result;
 };
 

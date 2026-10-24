@@ -24,17 +24,7 @@ export function createAnthropicAdapter(settings, { fetch, maxRetries = 1 } = {})
       onText?.(delta);
     });
     const message = await stream.finalMessage();
-    const { usage } = message;
-    return {
-      text,
-      stopReason: message.stop_reason,
-      declined: message.stop_reason === 'refusal',
-      usage: usage && {
-        inputTokens: usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0),
-        outputTokens: usage.output_tokens,
-        cachedTokens: usage.cache_read_input_tokens ?? 0,
-      },
-    };
+    return { text, stopReason: message.stop_reason, declined: message.stop_reason === 'refusal' };
   }
 
   return {
